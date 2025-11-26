@@ -144,4 +144,5 @@
 
 ## 📄 授權
 
-本專案採用 [MIT License](LICENSE)。
+本專案採用 [Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) 授權](https://creativecommons.org/licenses/by-nc-sa/4.0/)。
+請注意，此授權不允許商業用途。
