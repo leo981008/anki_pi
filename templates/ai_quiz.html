@@ -1,0 +1,15 @@
+{% extends "layout.html" %}
+{% block content %}
+    <h3>AI 隨堂考</h3>
+    <div class="card">
+        <div style="white-space: pre-wrap; background: #eef; padding: 15px;">{{ question }}</div>
+        <button type="button" onclick="speakText(document.querySelector('div[style*=\'white-space: pre-wrap\']').innerText)" class="btn btn-gray">🔊 朗讀</button>
+        <form action="/ai_check" method="POST" style="margin-top: 20px;">
+            <input type="hidden" name="question" value="{{ question }}">
+            <input type="text" name="user_answer" placeholder="輸入答案..." required autocomplete="off">
+            <button type="submit" class="btn btn-blue">批改</button>
+            <a href="/ai_quiz" class="btn btn-gray">換一題</a>
+            <a href="/" class="btn btn-red">回首頁</a>
+        </form>
+    </div>
+{% endblock %}

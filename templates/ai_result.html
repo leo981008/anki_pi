@@ -1,0 +1,15 @@
+{% extends "layout.html" %}
+{% block content %}
+    <h3>批改結果</h3>
+    <div class="card">
+        <h4>題目：</h4><p>{{ question }}</p>
+        <h4>你的回答：</h4><p><strong>{{ answer }}</strong></p>
+        <hr>
+        <h4>AI 評語：</h4>
+        <div style="white-space: pre-wrap; background: #e8f5e9; padding: 15px;">{{ feedback }}</div>
+        <div style="margin-top: 20px;">
+            <a href="/ai_quiz" class="btn btn-blue">再一題</a>
+            <a href="/" class="btn btn-gray">回首頁</a>
+        </div>
+    </div>
+{% endblock %}

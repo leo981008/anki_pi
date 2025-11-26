@@ -1,0 +1,59 @@
+{% extends "layout.html" %}
+
+{% block content %}
+
+    <!-- Main Status -->
+    <div class="card text-center">
+        {% if due_count > 0 %}
+            <h2 style="color: var(--red-color);">🔥 今天還有 <b>{{ due_count }}</b> 個單字要背！</h2>
+            <p>持續學習，別讓進度落後了！</p>
+        {% else %}
+            <h2 style="color: var(--green-color);">🎉 恭喜！今天的單字都背完了！</h2>
+            <p>每天堅持，進步看得見。</p>
+        {% endif %}
+    </div>
+
+    <!-- Study Modes -->
+    <div class="card">
+        <h3>學習模式</h3>
+        <div class="text-center">
+            <a href="/swipe_mode" class="btn btn-special" style="font-size: 1.2em;">📱 滑動學習</a>
+            <a href="/study" class="btn btn-primary" style="font-size: 1.2em;">📚 傳統學習</a>
+            <a href="/ai_quiz" class="btn btn-purple" style="font-size: 1.2em;">🧠 AI 隨堂考</a>
+        </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="card">
+        <h3>管理卡片</h3>
+        <div class="text-center">
+            <a href="/add" class="btn btn-green">✏️ 新增卡片</a>
+            <form action="/import" method="POST" style="display: inline-block;" onsubmit="return confirm('確定要從檔案匯入新單字嗎？');">
+                <button type="submit" class="btn btn-blue">📂 匯入新字</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Card List -->
+    <div class="card mt-2">
+        <h3>卡片總覽 (共 {{ cards|length }} 張)</h3>
+        <ul style="list-style: none; padding: 0;">
+            {% for card in cards %}
+                <li style="padding: 8px 0; border-bottom: 1px solid var(--border-color);">
+                    {{ card[1] }} 
+                    <small style="color: #888;">(下次複習: {{ card[2] }})</small>
+                </li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <!-- Danger Zone -->
+    <div class="card mt-2" style="border-color: var(--red-color);">
+        <h3 style="color: var(--red-color);">⚠️ 危險區域</h3>
+        <p>此操作將會重置所有卡片的學習進度，無法復原。</p>
+        <form action="/reset_progress" method="POST" onsubmit="return confirm('這是最後一次警告！確定要重置所有進度嗎？');">
+            <button type="submit" class="btn btn-red">重置所有進度</button>
+        </form>
+    </div>
+
+{% endblock %}

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pi Anki</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap">
+    <style>
+        /* CSS Reset & Base */
+        :root {
+            --bg-color: #f4f4f9;
+            --text-color: #333;
+            --card-bg: white;
+            --primary-color: #007bff;
+            --green-color: #28a745;
+            --red-color: #dc3545;
+            --purple-color: #8e44ad;
+            --special-color: #ff6b6b;
+            --border-color: #ddd;
+            --shadow-color: rgba(0,0,0,0.1);
+            --success-bg: #d4edda;
+            --success-color: #155724;
+            --error-bg: #f8d7da;
+            --error-color: #721c24;
+        }
+        [data-theme="dark"] {
+            --bg-color: #121212;
+            --text-color: #e0e0e0;
+            --card-bg: #1e1e1e;
+            --border-color: #444;
+            --shadow-color: rgba(255,255,255,0.1);
+            --success-bg: #1e4b2d;
+            --success-color: #c8f7d4;
+            --error-bg: #5a2d31;
+            --error-color: #fdd8db;
+        }
+
+        body { 
+            font-family: 'Noto Sans TC', sans-serif; 
+            max-width: 800px; 
+            margin: 0 auto; 
+            padding: 20px; 
+            background: var(--bg-color); 
+            color: var(--text-color);
+            line-height: 1.6;
+        }
+
+        /* Header */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+        header h1 {
+            margin: 0;
+        }
+        header h1 a {
+            text-decoration: none;
+            color: var(--text-color);
+            font-weight: 700;
+        }
+        
+        /* Theme Toggle */
+        .theme-switch {
+            cursor: pointer;
+            font-size: 1.5rem;
+            background: none;
+            border: none;
+            color: var(--text-color);
+        }
+
+        /* Main Content */
+        main {
+            padding: 1rem 0;
+        }
+        
+        /* Flash Messages */
+        .flash-messages {
+            list-style: none;
+            padding: 0;
+            margin-bottom: 1rem;
+        }
+        .flash {
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .flash.success {
+            background-color: var(--success-bg);
+            color: var(--success-color);
+        }
+        .flash.error {
+            background-color: var(--error-bg);
+            color: var(--error-color);
+        }
+        .flash-close {
+            cursor: pointer;
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            color: inherit;
+        }
+
+        /* General UI Elements */
+        .card { 
+            background: var(--card-bg); 
+            padding: 20px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 8px var(--shadow-color); 
+            margin-bottom: 20px; 
+        }
+        .btn { 
+            padding: 12px 24px; 
+            text-decoration: none; 
+            color: white; 
+            border-radius: 8px; 
+            margin: 5px; 
+            display: inline-block; 
+            border: none; 
+            cursor: pointer;
+            font-weight: 500;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+        }
+
+        .btn-primary { background: var(--primary-color); }
+        .btn-green { background: var(--green-color); }
+        .btn-red { background: var(--red-color); }
+        .btn-purple { background: var(--purple-color); }
+        .btn-special { background: var(--special-color); }
+        .btn-gray { background: #6c757d; }
+
+        input, textarea { 
+            width: 100%; 
+            padding: 12px; 
+            margin: 10px 0; 
+            box-sizing: border-box; 
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background-color: var(--card-bg);
+            color: var(--text-color);
+        }
+
+        /* Utility classes */
+        .text-center { text-align: center; }
+        .mt-2 { margin-top: 2rem; }
+
+    </style>
+</head>
+<body>
+    <header>
+        <h1><a href="/">樹莓派記憶卡</a></h1>
+        <button class="theme-switch" id="theme-toggle-btn">☀️</button>
+    </header>
+    
+    <main>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <ul class="flash-messages">
+                {% for category, message in messages %}
+                    <li class="flash {{ category }}">{{ message }} <button class="flash-close" onclick="this.parentElement.style.display='none'">&times;</button></li>
+                {% endfor %}
+                </ul>
+            {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </main>
+
+    <script>
+        // Theme toggling
+        const toggleBtn = document.getElementById('theme-toggle-btn');
+        const currentTheme = localStorage.getItem('theme');
+
+        if (currentTheme) {
+            document.documentElement.setAttribute('data-theme', currentTheme);
+            if (currentTheme === 'dark') {
+                toggleBtn.textContent = '🌙';
+            }
+        }
+
+        toggleBtn.addEventListener('click', () => {
+            let theme = document.documentElement.getAttribute('data-theme');
+            if (theme === 'dark') {
+                document.documentElement.removeAttribute('data-theme');
+                localStorage.removeItem('theme');
+                toggleBtn.textContent = '☀️';
+            } else {
+                document.documentElement.setAttribute('data-theme', 'dark');
+                localStorage.setItem('theme', 'dark');
+                toggleBtn.textContent = '🌙';
+            }
+        });
+
+        // Speech synthesis
+        function speakText(text) {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                const u = new SpeechSynthesisUtterance(text);
+                u.lang = 'en-US'; 
+                u.rate = 0.9;
+                window.speechSynthesis.speak(u);
+            }
+        }
+    </script>
+</body>
+</html>
