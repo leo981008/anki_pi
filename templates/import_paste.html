@@ -1,0 +1,22 @@
+{% extends "layout.html" %}
+{% block content %}
+    <h3>貼上內容匯入</h3>
+    <p>請將 CSV 格式的內容貼到下方文字區。每行一筆資料，格式為 `正面,背面`。</p>
+    <form method="POST">
+        <textarea name="csv_data" rows="15" placeholder="例如：
+apple,蘋果
+banana,香蕉
+cat,貓" style="width: 100%; font-family: monospace;"></textarea>
+        
+        <div style="margin: 1rem 0;">
+            <label>將所有卡片設為:</label>
+            <input type="radio" id="type_recognize" name="card_type" value="recognize" checked>
+            <label for="type_recognize">只要認得</label>
+            <input type="radio" id="type_spell" name="card_type" value="spell" style="margin-left: 1rem;">
+            <label for="type_spell">需要會拼</label>
+        </div>
+
+        <button type="submit" class="btn btn-green">匯入</button>
+        <a href="/" class="btn btn-gray">返回</a>
+    </form>
+{% endblock %}

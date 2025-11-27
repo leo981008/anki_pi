@@ -6,6 +6,7 @@ import os
 import csv
 import shutil
 import time
+import io
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -352,6 +353,43 @@ def import_cards():
         shutil.move(TARGET_FILE, f"error_{int(time.time())}.csv")
 
     return redirect(url_for('index'))
+
+
+@app.route('/import/paste', methods=['GET', 'POST'])
+def import_paste():
+    if request.method == 'POST':
+        csv_data = request.form.get('csv_data')
+        card_type = request.form.get('card_type', 'recognize')
+        
+        if not csv_data:
+            flash("⚠️ 沒有貼上任何內容。", "error")
+            return redirect(url_for('import_paste'))
+            
+        try:
+            # 使用 io.StringIO 將字串模擬成檔案
+            import io
+            file_like_object = io.StringIO(csv_data)
+            rows = list(csv.reader(file_like_object))
+            
+            count = 0
+            with sqlite3.connect(DB_NAME) as conn:
+                today = datetime.now().date()
+                for row in rows:
+                    if len(row) >= 2 and row[0].strip():
+                        front = row[0].strip()
+                        back = row[1].strip()
+                        conn.execute("INSERT INTO cards (front, back, next_review, card_type) VALUES (?, ?, ?, ?)", 
+                                     (front, back, today, card_type))
+                        count += 1
+            
+            flash(f"✅ 成功從貼上內容匯入 {count} 張新卡片！", "success")
+            return redirect(url_for('index'))
+
+        except Exception as e:
+            flash(f"⚠️ 匯入失敗: {e}", "error")
+            return redirect(url_for('import_paste'))
+
+    return render_template('import_paste.html')
 
 
 @app.route('/reset_progress', methods=['POST'])
