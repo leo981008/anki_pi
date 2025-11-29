@@ -406,6 +406,15 @@ def reset_progress():
     flash("已重置所有卡片進度。", "success")
     return redirect(url_for('index'))
 
+@app.route('/delete_all_cards', methods=['POST'])
+def delete_all_cards():
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM cards")
+        conn.commit()
+    flash("已成功刪除所有卡片。", "success")
+    return redirect(url_for('index'))
+
 if __name__ == '__main__':
     init_db()
     # host='0.0.0.0' 讓區域網路內其他裝置可以連線
