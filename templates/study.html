@@ -1,43 +1,45 @@
 {% extends "layout.html" %}
 {% block content %}
-    <div style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
-        <a href="/" class="btn btn-gray" style="padding: 8px 15px; font-size: 0.9em;">↩ 回首頁</a>
+    <div style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
+        <a href="/" class="btn btn-gray" style="padding: 8px 15px;">↩ 回首頁</a>
         {% if due_count is defined and due_count > 0 %}
-            <span style="font-size: 1.1em; color: #333;">今天還剩 <b>{{ due_count }}</b> 張</span>
+            <span style="font-weight: 500; color: var(--text-color);">今日剩餘: <b>{{ due_count }}</b></span>
         {% endif %}
     </div>
 
     {% if card %}
-        <div class="card">
-            <div style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 20px;">
-                <h2 id="card-front-text" style="margin: 0; font-size: 2em;">{{ card[1] }}</h2>
-                <button onclick="speakText(document.getElementById('card-front-text').innerText)" class="btn btn-blue" style="border-radius: 50%; width: 40px; height: 40px; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 1.2em;">
+        <div class="card" style="min-height: 350px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;">
+            
+            <div id="question-area" style="margin-bottom: 1rem;">
+                <h2 id="card-front-text" style="margin: 0; font-size: 2.2rem; font-weight: 600;">{{ card[1] }}</h2>
+                <button onclick="speakText(document.getElementById('card-front-text').innerText)" class="btn btn-gray" style="border-radius: 50%; width: 45px; height: 45px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 1.2rem; margin-top: 1rem;">
                     🔊
                 </button>
             </div>
 
-            <div id="ans" style="display:none;">
-                <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;">
+            <div id="ans" style="display:none; width: 100%; text-align: center;">
+                <hr style="margin: 20px auto; width: 80%; border-color: var(--border-color);">
                 
-                <p style="font-size: 1.2em; color: #333; margin-bottom: 30px;">{{ card[2] }}</p>
+                <p style="font-size: 1.8rem; color: var(--primary-color); margin-bottom: 2rem; font-weight: 500;">{{ card[2] }}</p>
                 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                    <a href="/answer/{{ card[0] }}/0" class="btn btn-red">忘記 (重來)</a>
-                    <a href="/answer/{{ card[0] }}/3" class="btn btn-gray">困難</a>
-                    <a href="/answer/{{ card[0] }}/4" class="btn btn-blue">普通</a>
-                    <a href="/answer/{{ card[0] }}/5" class="btn btn-green">簡單 (完美)</a>
+                <p style="margin-bottom: 1rem; color: #888;">你對這個單字的印象如何？</p>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px;">
+                    <a href="/answer/{{ card[0] }}/0" class="btn btn-red">忘記</a>
+                    <a href="/answer/{{ card[0] }}/3" class="btn btn-special">困難</a>
+                    <a href="/answer/{{ card[0] }}/4" class="btn btn-primary">普通</a>
+                    <a href="/answer/{{ card[0] }}/5" class="btn btn-green">簡單</a>
                 </div>
             </div>
 
-            <button id="show" class="btn btn-blue" style="width: 100%; padding: 15px; font-size: 1.1em; margin-top: 10px;" onclick="document.getElementById('ans').style.display='block';this.style.display='none'">
+            <button id="show" class="btn btn-primary" style="width: 80%; max-width: 300px; padding: 15px; font-size: 1.1em; margin-top: auto;" onclick="document.getElementById('ans').style.display='block';this.style.display='none'">
                 顯示答案
             </button>
         </div>
     {% else %}
-        <div class="card">
-            <h3 style="color: #28a745;">恭喜！</h3>
+        <div class="card text-center">
+            <h3 style="color: var(--green-color);">🎉 恭喜！</h3>
             <p>今天的單字都背完了。</p>
-            <a href="/" class="btn btn-blue">回首頁</a>
+            <a href="/" class="btn btn-primary" style="margin-top: 1rem;">回首頁</a>
         </div>
     {% endif %}
 {% endblock %}
