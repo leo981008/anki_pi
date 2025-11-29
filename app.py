@@ -94,7 +94,7 @@ def index():
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(id) FROM cards WHERE next_review <= ?", (today,))
         due_count = cursor.fetchone()[0]
-        cursor.execute("SELECT id, front, next_review, card_type FROM cards ORDER BY next_review")
+        cursor.execute("SELECT id, front, back, next_review, card_type FROM cards ORDER BY next_review")
         cards = cursor.fetchall()
     return render_template('index.html', cards=cards, due_count=due_count)
 

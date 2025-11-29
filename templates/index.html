@@ -46,12 +46,12 @@
         <ul style="list-style: none; padding: 0; max-height: 400px; overflow-y: auto;">
             {% for card in cards %}
                 <li style="display: flex; justify-content: space-between; align-items: center; padding: 12px 8px; border-bottom: 1px solid var(--border-color);">
-                    <span>{{ card[1] }}</span>
+                    <span>{{ card[1] }} - {{ card[2] }}</span>
                     <div>
-                        {% if card[3] == 'spell' %}
+                        {% if card[4] == 'spell' %}
                             <span style="background-color: var(--purple-color); color: white; font-size: 0.7em; padding: 3px 8px; border-radius: 10px; margin-right: 10px;">拼寫</span>
                         {% endif %}
-                        <small style="color: #888;">下次複習: {{ card[2] }}</small>
+                        <small style="color: #888;">下次複習: {{ card[3] }}</small>
                     </div>
                 </li>
             {% else %}
