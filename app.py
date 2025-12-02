@@ -146,67 +146,66 @@ def index():
         
     total_due_count = sum(d['due_count'] for d in decks_with_due_counts)
         
-    return render_template('index.html', decks=decks_with_due_counts, cards=cards, total_due_count=total_due_count)    
-    
-    @app.route('/decks', methods=['GET', 'POST'])
-    def manage_decks():
-        with sqlite3.connect(DB_NAME) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-    
-            if request.method == 'POST':
-                action = request.form.get('action')
-                if action == 'add':
-                    deck_name = request.form.get('deck_name')
-                    if deck_name:
-                        try:
-                            cursor.execute("INSERT INTO decks (name) VALUES (?)", (deck_name,))
-                            flash(f"成功新增牌組: {deck_name}", "success")
-                        except sqlite3.IntegrityError:
-                            flash(f"⚠️ 牌組名稱「{deck_name}」已存在。", "error")
-                
-                elif action == 'delete':
-                    deck_id = request.form.get('deck_id')
-                    if deck_id:
-                        # 刪除牌組以及該牌組中的所有卡片
-                        cursor.execute("DELETE FROM cards WHERE deck_id = ?", (deck_id,))
-                        cursor.execute("DELETE FROM decks WHERE id = ?", (deck_id,))
-                        flash("已成功刪除牌組及相關卡片。", "success")
-                
-                conn.commit()
-                return redirect(url_for('manage_decks'))
-    
-            cursor.execute("SELECT * FROM decks ORDER BY name")
-            decks = cursor.fetchall()
+    return render_template('index.html', decks=decks_with_due_counts, cards=cards, total_due_count=total_due_count)
+
+@app.route('/decks', methods=['GET', 'POST'])
+def manage_decks():
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        if request.method == 'POST':
+            action = request.form.get('action')
+            if action == 'add':
+                deck_name = request.form.get('deck_name')
+                if deck_name:
+                    try:
+                        cursor.execute("INSERT INTO decks (name) VALUES (?)", (deck_name,))
+                        flash(f"成功新增牌組: {deck_name}", "success")
+                    except sqlite3.IntegrityError:
+                        flash(f"⚠️ 牌組名稱「{deck_name}」已存在。", "error")
             
-        return render_template('decks.html', decks=decks)
-    
-    
-    @app.route('/add', methods=['GET', 'POST'])
-    def add_card():
-        with sqlite3.connect(DB_NAME) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-    
-            if request.method == 'POST':
-                front = request.form['front']
-                back = request.form['back']
-                card_type = request.form['card_type']
-                deck_id = request.form['deck_id']
-                today = datetime.now().date()
-                
-                cursor.execute(
-                    "INSERT INTO cards (front, back, next_review, card_type, deck_id) VALUES (?, ?, ?, ?, ?)",
-                    (front, back, today, card_type, deck_id)
-                )
-                conn.commit()
-                flash(f"成功新增卡片: {front}", "success")
-                return redirect(url_for('add_card'))
-    
-            cursor.execute("SELECT * FROM decks ORDER BY name")
-            decks = cursor.fetchall()
+            elif action == 'delete':
+                deck_id = request.form.get('deck_id')
+                if deck_id:
+                    # 刪除牌組以及該牌組中的所有卡片
+                    cursor.execute("DELETE FROM cards WHERE deck_id = ?", (deck_id,))
+                    cursor.execute("DELETE FROM decks WHERE id = ?", (deck_id,))
+                    flash("已成功刪除牌組及相關卡片。", "success")
             
-        return render_template('add.html', decks=decks)
+            conn.commit()
+            return redirect(url_for('manage_decks'))
+
+        cursor.execute("SELECT * FROM decks ORDER BY name")
+        decks = cursor.fetchall()
+        
+    return render_template('decks.html', decks=decks)
+
+@app.route('/add', methods=['GET', 'POST'])
+def add_card():
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        if request.method == 'POST':
+            front = request.form['front']
+            back = request.form['back']
+            card_type = request.form['card_type']
+            deck_id = request.form['deck_id']
+            today = datetime.now().date()
+            
+            cursor.execute(
+                "INSERT INTO cards (front, back, next_review, card_type, deck_id) VALUES (?, ?, ?, ?, ?)",
+                (front, back, today, card_type, deck_id)
+            )
+            conn.commit()
+            flash(f"成功新增卡片: {front}", "success")
+            return redirect(url_for('add_card'))
+
+        cursor.execute("SELECT * FROM decks ORDER BY name")
+        decks = cursor.fetchall()
+        
+    return render_template('add.html', decks=decks)
 # --- 傳統學習模式 (含隨機中英切換) ---
 @app.route('/study/<int:deck_id>')
 def study(deck_id):
