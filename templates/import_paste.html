@@ -3,6 +3,16 @@
     <h3>貼上內容匯入</h3>
     <p>請將 CSV 格式的內容貼到下方文字區。每行一筆資料，格式為 `正面,背面`。</p>
     <form method="POST">
+        <div style="margin-bottom: 1rem;">
+            <label for="deck_id">選擇要匯入的牌組:</label>
+            <select name="deck_id" id="deck_id" required>
+                <option value="" disabled selected>-- 請選擇 --</option>
+                {% for deck in decks %}
+                    <option value="{{ deck.id }}">{{ deck.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
         <textarea name="csv_data" rows="15" placeholder="例如：
 apple,蘋果
 banana,香蕉

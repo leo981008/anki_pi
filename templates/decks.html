@@ -1,0 +1,33 @@
+{% extends "layout.html" %}
+{% block content %}
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <h3>🗂️ 管理牌組</h3>
+        <a href="/" class="btn btn-gray">返回</a>
+    </div>
+
+    <!-- Add Deck Form -->
+    <div class="card">
+        <form method="POST" action="{{ url_for('manage_decks') }}" style="display: flex; gap: 10px;">
+            <input type="text" name="deck_name" placeholder="輸入新牌組名稱..." required style="flex-grow: 1; margin: 0;">
+            <button type="submit" name="action" value="add" class="btn btn-green">新增</button>
+        </form>
+    </div>
+
+    <!-- Deck List -->
+    <div class="card mt-2">
+        <h4>現有牌組</h4>
+        <ul style="list-style: none; padding: 0;">
+            {% for deck in decks %}
+            <li style="display: flex; justify-content: space-between; align-items: center; padding: 12px 8px; border-bottom: 1px solid var(--border-color);">
+                <span>{{ deck.name }}</span>
+                <form method="POST" action="{{ url_for('manage_decks') }}" onsubmit="return confirm('確定要刪除「{{ deck.name }}」牌組嗎？\n注意：此牌組中的所有卡片也會被一併刪除！');" style="margin: 0;">
+                    <input type="hidden" name="deck_id" value="{{ deck.id }}">
+                    <button type="submit" name="action" value="delete" class="btn btn-red" style="padding: 5px 10px; font-size: 0.8rem;">刪除</button>
+                </form>
+            </li>
+            {% else %}
+            <li>沒有任何牌組。</li>
+            {% endfor %}
+        </ul>
+    </div>
+{% endblock %}

@@ -1,11 +1,10 @@
 {% extends "layout.html" %}
-
 {% block content %}
 
     <!-- Main Status -->
     <div class="card text-center" style="background: linear-gradient(135deg, var(--primary-color), #673ab7); color: white;">
-        {% if due_count > 0 %}
-            <h2 style="margin:0; font-size: 2.5rem; font-weight: 700;">{{ due_count }}</h2>
+        {% if total_due_count > 0 %}
+            <h2 style="margin:0; font-size: 2.5rem; font-weight: 700;">{{ total_due_count }}</h2>
             <p style="margin:0; font-size: 1.2rem; opacity: 0.9;">張卡片今天到期</p>
         {% else %}
             <h2 style="color: white; margin: 0;">🎉 恭喜！</h2>
@@ -13,29 +12,49 @@
         {% endif %}
     </div>
 
+    <!-- Deck List / Study Modes -->
+    <div class="card">
+        <h3>🚀 選擇牌組開始學習</h3>
+        <div style="display: flex; flex-direction: column; gap: 15px;">
+            {% for deck in decks %}
+                <div style="display: flex; align-items: center; justify-content: space-between; background: var(--bg-color); padding: 10px 15px; border-radius: 8px;">
+                    <span style="font-weight: 500;">{{ deck.name }}</span>
+                    {% if deck.due_count > 0 %}
+                        <a href="{{ url_for('study', deck_id=deck.id) }}" class="btn btn-primary">學習 ({{ deck.due_count }})</a>
+                    {% else %}
+                        <span style="color: #888; font-size: 0.9rem;">已完成</span>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+
+
     <!-- Action Grid -->
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
-        
-        <!-- Study Modes -->
-        <div class="card">
-            <h3>🚀 學習模式</h3>
-            <div style="display: flex; flex-direction: column; gap: 10px;">
-                <a href="/swipe_mode" class="btn btn-special" style="width: 100%;">📱 滑動學習</a>
-                <a href="/study" class="btn btn-primary" style="width: 100%;">📚 傳統學習</a>
-                <a href="/ai_quiz" class="btn btn-purple" style="width: 100%;">🧠 AI 隨堂考</a>
-            </div>
-        </div>
-
         <!-- Card Management -->
         <div class="card">
-            <h3>🛠️ 管理卡片</h3>
+            <h3>🛠️ 管理</h3>
             <div style="display: flex; flex-direction: column; gap: 10px;">
+                <a href="{{ url_for('manage_decks') }}" class="btn btn-gray" style="width: 100%;">🗂️ 管理牌組</a>
                 <a href="/add" class="btn btn-green" style="width: 100%;">✏️ 新增卡片</a>
                 <a href="/import/paste" class="btn btn-red" style="width: 100%;">📋 貼上內容匯入</a>
                 <form action="/import" method="POST" style="margin:0;" onsubmit="return confirm('確定要從 data.csv 檔案匯入新單字嗎？');">
+                    <select name="deck_id" required style="margin-bottom: 10px;">
+                        <option value="" disabled selected>選擇要匯入的牌組</option>
+                        {% for deck in decks %}
+                            <option value="{{ deck.id }}">{{ deck.name }}</option>
+                        {% endfor %}
+                    </select>
                     <button type="submit" class="btn btn-gray" style="width: 100%;">📂 從檔案匯入</button>
                 </form>
             </div>
+        </div>
+        
+        <!-- Other Actions -->
+        <div class="card">
+             <h3>🤖 AI 功能</h3>
+             <a href="/ai_quiz" class="btn btn-purple" style="width: 100%;">🧠 AI 隨堂考</a>
         </div>
     </div>
 
@@ -46,12 +65,13 @@
         <ul style="list-style: none; padding: 0; max-height: 400px; overflow-y: auto;">
             {% for card in cards %}
                 <li style="display: flex; justify-content: space-between; align-items: center; padding: 12px 8px; border-bottom: 1px solid var(--border-color);">
-                    <span>{{ card[1] }} - {{ card[2] }}</span>
+                    <span>{{ card.front }} - {{ card.back }}</span>
                     <div>
-                        {% if card[4] == 'spell' %}
+                        <span style="background: var(--bg-color); color: var(--text-color); font-size: 0.7em; padding: 3px 8px; border-radius: 10px; margin-right: 10px;">{{ card.deck_name }}</span>
+                        {% if card.card_type == 'spell' %}
                             <span style="background-color: var(--purple-color); color: white; font-size: 0.7em; padding: 3px 8px; border-radius: 10px; margin-right: 10px;">拼寫</span>
                         {% endif %}
-                        <small style="color: #888;">下次複習: {{ card[3] }}</small>
+                        <small style="color: #888;">下次複習: {{ card.next_review }}</small>
                     </div>
                 </li>
             {% else %}

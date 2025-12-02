@@ -2,14 +2,28 @@
 {% block content %}
     <h3>新增卡片</h3>
     <form method="POST">
-        <label>正面 (問題):</label><input type="text" name="front" required>
-        <label>背面 (答案):</label><textarea name="back" rows="5" required></textarea>
+        <label for="deck_id">選擇牌組:</label>
+        <select name="deck_id" id="deck_id" required>
+            {% for deck in decks %}
+                <option value="{{ deck.id }}">{{ deck.name }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="front">正面 (問題):</label>
+        <input type="text" name="front" id="front" required>
+        
+        <label for="back">背面 (答案):</label>
+        <textarea name="back" id="back" rows="5" required></textarea>
+        
         <label>卡片類型:</label>
         <select name="card_type">
             <option value="recognize">只要認得</option>
             <option value="spell">需要會拼</option>
         </select>
-        <button type="submit" class="btn btn-green">儲存</button>
-        <a href="/" class="btn btn-gray">返回</a>
+        
+        <div style="margin-top: 1.5rem;">
+            <button type="submit" class="btn btn-green">儲存</button>
+            <a href="/" class="btn btn-gray">返回</a>
+        </div>
     </form>
 {% endblock %}

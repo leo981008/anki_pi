@@ -180,13 +180,14 @@
         let currentCardId = null;
         const container = document.getElementById('card-container');
         const dueCountElement = document.getElementById('due-count');
+        const deckId = {{ deck_id }};
 
         // 初始化：載入第一張卡片
         loadNextCard();
 
         function loadNextCard() {
             // 呼叫後端 API
-            fetch('/api/next_card')
+            fetch(`/api/next_card/${deckId}`)
                 .then(res => res.json())
                 .then(data => {
                     // 更新剩餘數量

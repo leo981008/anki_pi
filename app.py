@@ -22,6 +22,15 @@ app.secret_key = os.environ.get('SECRET_KEY', 'dev_secret_key_should_be_changed'
 def init_db():
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
+        # 建立 decks 表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS decks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE
+            )
+        ''')
+        
+        # 建立 cards 表
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS cards (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -31,14 +40,34 @@ def init_db():
                 interval INTEGER DEFAULT 0,
                 repetition INTEGER DEFAULT 0,
                 ef FLOAT DEFAULT 2.5,
-                card_type TEXT NOT NULL DEFAULT 'recognize'
+                card_type TEXT NOT NULL DEFAULT 'recognize',
+                deck_id INTEGER,
+                FOREIGN KEY (deck_id) REFERENCES decks (id)
             )
         ''')
-        # 檢查欄位是否存在，不存在則新增 (確保舊資料庫相容)
+
+        # --- 舊資料庫遷移 ---
+        # 檢查是否有預設牌組，沒有則建立
+        cursor.execute("SELECT id FROM decks WHERE name = '預設牌組'")
+        default_deck = cursor.fetchone()
+        if not default_deck:
+            cursor.execute("INSERT INTO decks (name) VALUES ('預設牌組')")
+            default_deck_id = cursor.lastrowid
+        else:
+            default_deck_id = default_deck[0]
+
+        # 檢查 cards 表是否有 deck_id 欄位
         cursor.execute("PRAGMA table_info(cards)")
         columns = [column[1] for column in cursor.fetchall()]
+        if 'deck_id' not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN deck_id INTEGER")
+            # 將所有舊卡片歸入預設牌組
+            cursor.execute("UPDATE cards SET deck_id = ? WHERE deck_id IS NULL", (default_deck_id,))
+
+        # 檢查 card_type 欄位是否存在，不存在則新增 (確保舊資料庫相容)
         if 'card_type' not in columns:
             cursor.execute("ALTER TABLE cards ADD COLUMN card_type TEXT NOT NULL DEFAULT 'recognize'")
+        
         conn.commit()
 
 # --- SM-2 記憶演算法 ---
@@ -89,49 +118,109 @@ def ask_ollama(prompt):
 @app.route('/')
 def index():
     today = datetime.now().date()
-    # 列出所有卡片 (依照下次複習時間排序)
     with sqlite3.connect(DB_NAME) as conn:
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(id) FROM cards WHERE next_review <= ?", (today,))
-        due_count = cursor.fetchone()[0]
-        cursor.execute("SELECT id, front, back, next_review, card_type FROM cards ORDER BY next_review")
-        cards = cursor.fetchall()
-    return render_template('index.html', cards=cards, due_count=due_count)
-
-@app.route('/add', methods=['GET', 'POST'])
-def add_card():
-    # 手動新增單字
-    if request.method == 'POST':
-        front = request.form['front']
-        back = request.form['back']
-        card_type = request.form['card_type']
-        today = datetime.now().date()
         
-        with sqlite3.connect(DB_NAME) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO cards (front, back, next_review, interval, repetition, ef, card_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (front, back, today, 0, 0, 2.5, card_type)
-            )
-            conn.commit()
-        flash(f"成功新增卡片: {front}", "success")
-        return redirect(url_for('index'))
-    return render_template('add.html')
+        # 取得所有牌組，並計算每個牌組的到期卡片數量
+        cursor.execute("""
+            SELECT 
+                d.id, 
+                d.name, 
+                COUNT(c.id) as due_count
+            FROM decks d
+            LEFT JOIN cards c ON d.id = c.deck_id AND c.next_review <= ?
+            GROUP BY d.id, d.name
+            ORDER BY d.name
+        """, (today,))
+        decks_with_due_counts = cursor.fetchall()
 
+        # 取得所有卡片並附上牌組名稱
+        cursor.execute("""
+            SELECT c.front, c.back, c.next_review, c.card_type, d.name as deck_name
+            FROM cards c
+            JOIN decks d ON c.deck_id = d.id
+            ORDER BY c.next_review
+        """)
+        cards = cursor.fetchall()
+        
+    total_due_count = sum(d['due_count'] for d in decks_with_due_counts)
+        
+    return render_template('index.html', decks=decks_with_due_counts, cards=cards, total_due_count=total_due_count)    
+    
+    @app.route('/decks', methods=['GET', 'POST'])
+    def manage_decks():
+        with sqlite3.connect(DB_NAME) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+    
+            if request.method == 'POST':
+                action = request.form.get('action')
+                if action == 'add':
+                    deck_name = request.form.get('deck_name')
+                    if deck_name:
+                        try:
+                            cursor.execute("INSERT INTO decks (name) VALUES (?)", (deck_name,))
+                            flash(f"成功新增牌組: {deck_name}", "success")
+                        except sqlite3.IntegrityError:
+                            flash(f"⚠️ 牌組名稱「{deck_name}」已存在。", "error")
+                
+                elif action == 'delete':
+                    deck_id = request.form.get('deck_id')
+                    if deck_id:
+                        # 刪除牌組以及該牌組中的所有卡片
+                        cursor.execute("DELETE FROM cards WHERE deck_id = ?", (deck_id,))
+                        cursor.execute("DELETE FROM decks WHERE id = ?", (deck_id,))
+                        flash("已成功刪除牌組及相關卡片。", "success")
+                
+                conn.commit()
+                return redirect(url_for('manage_decks'))
+    
+            cursor.execute("SELECT * FROM decks ORDER BY name")
+            decks = cursor.fetchall()
+            
+        return render_template('decks.html', decks=decks)
+    
+    
+    @app.route('/add', methods=['GET', 'POST'])
+    def add_card():
+        with sqlite3.connect(DB_NAME) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+    
+            if request.method == 'POST':
+                front = request.form['front']
+                back = request.form['back']
+                card_type = request.form['card_type']
+                deck_id = request.form['deck_id']
+                today = datetime.now().date()
+                
+                cursor.execute(
+                    "INSERT INTO cards (front, back, next_review, card_type, deck_id) VALUES (?, ?, ?, ?, ?)",
+                    (front, back, today, card_type, deck_id)
+                )
+                conn.commit()
+                flash(f"成功新增卡片: {front}", "success")
+                return redirect(url_for('add_card'))
+    
+            cursor.execute("SELECT * FROM decks ORDER BY name")
+            decks = cursor.fetchall()
+            
+        return render_template('add.html', decks=decks)
 # --- 傳統學習模式 (含隨機中英切換) ---
-@app.route('/study')
-def study():
+@app.route('/study/<int:deck_id>')
+def study(deck_id):
     today = datetime.now().date()
     with sqlite3.connect(DB_NAME) as conn:
         conn.row_factory = sqlite3.Row # 讓回傳結果可以用欄位名讀取
         cursor = conn.cursor()
         
-        # 先計算總共有幾張要背
-        cursor.execute("SELECT COUNT(id) FROM cards WHERE next_review <= ?", (today,))
+        # 先計算該牌組總共有幾張要背
+        cursor.execute("SELECT COUNT(id) FROM cards WHERE next_review <= ? AND deck_id = ?", (today, deck_id))
         due_count = cursor.fetchone()[0]
         
-        # 隨機取出今天要複習的卡片
-        cursor.execute("SELECT * FROM cards WHERE next_review <= ? ORDER BY RANDOM() LIMIT 1", (today,))
+        # 從指定牌組隨機取出今天要複習的卡片
+        cursor.execute("SELECT * FROM cards WHERE next_review <= ? AND deck_id = ? ORDER BY RANDOM() LIMIT 1", (today, deck_id))
         card = cursor.fetchone()
     
     if card:
@@ -158,19 +247,12 @@ def study():
             # 正向模式：不做修改
             pass
             
-        # 轉回 tuple 格式給 template 使用 (id, front, back, next_review...)
-        modified_card = (
-            card_data['id'],
-            card_data['front'],
-            card_data['back'],
-            card_data['next_review']
-        )
-        return render_template('study.html', card=modified_card, due_count=due_count)
+        return render_template('study.html', card=card_data, due_count=due_count, deck_id=deck_id)
     else:
-        return render_template('study.html', card=None, due_count=due_count)
+        return render_template('study.html', card=None, due_count=due_count, deck_id=deck_id)
 
-@app.route('/answer/<int:card_id>/<int:quality>')
-def answer(card_id, quality):
+@app.route('/answer/<int:deck_id>/<int:card_id>/<int:quality>')
+def answer(deck_id, card_id, quality):
     # 處理傳統模式的答案評分
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
@@ -190,7 +272,7 @@ def answer(card_id, quality):
             """, (new_interval, new_rep, new_ef, new_date, card_id))
             conn.commit()
             
-    return redirect(url_for('study'))
+    return redirect(url_for('study', deck_id=deck_id))
 
 # --- AI 出題功能 ---
 @app.route('/ai_quiz', methods=['GET'])
@@ -224,24 +306,24 @@ def ai_check():
 
 # --- 速記/滑動模式 (API 支援) ---
 
-@app.route('/swipe_mode')
-def swipe_mode():
+@app.route('/swipe_mode/<int:deck_id>')
+def swipe_mode(deck_id):
     # 載入速記模式的前端介面
-    return render_template('swipe_mode.html')
+    return render_template('swipe_mode.html', deck_id=deck_id)
 
-@app.route('/api/next_card')
-def api_next_card():
+@app.route('/api/next_card/<int:deck_id>')
+def api_next_card(deck_id):
     today = datetime.now().date()
     with sqlite3.connect(DB_NAME) as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # 先計算總共有幾張要背
-        cursor.execute("SELECT COUNT(id) FROM cards WHERE next_review <= ?", (today,))
+        # 先計算該牌組總共有幾張要背
+        cursor.execute("SELECT COUNT(id) FROM cards WHERE next_review <= ? AND deck_id = ?", (today, deck_id))
         due_count = cursor.fetchone()[0]
 
-        # 隨機抽取一張今天該背的卡片
-        cursor.execute("SELECT * FROM cards WHERE next_review <= ? ORDER BY RANDOM() LIMIT 1", (today,))
+        # 從指定牌組隨機抽取一張今天該背的卡片
+        cursor.execute("SELECT * FROM cards WHERE next_review <= ? AND deck_id = ? ORDER BY RANDOM() LIMIT 1", (today, deck_id))
         card = cursor.fetchone()
         
     if card:
@@ -314,6 +396,11 @@ def api_submit_swipe():
 # --- 工具：匯入 & 重置 ---
 @app.route('/import', methods=['POST'])
 def import_cards():
+    deck_id = request.form.get('deck_id')
+    if not deck_id:
+        flash("⚠️ 請選擇要匯入的牌組。", "error")
+        return redirect(url_for('index'))
+
     if not os.path.exists(TARGET_FILE):
         flash("找不到 data.csv 檔案，請先將檔案上傳到專案根目錄。", "error")
         return redirect(url_for('index'))
@@ -336,8 +423,8 @@ def import_cards():
                     back = row[1].strip()
                     # 檢查是否有第三欄，且內容為 'spell'
                     card_type = 'spell' if len(row) > 2 and row[2].strip().lower() == 'spell' else 'recognize'
-                    conn.execute("INSERT INTO cards (front, back, next_review, card_type) VALUES (?, ?, ?, ?)", 
-                                 (front, back, today, card_type))
+                    conn.execute("INSERT INTO cards (front, back, next_review, card_type, deck_id) VALUES (?, ?, ?, ?, ?)", 
+                                 (front, back, today, card_type, deck_id))
                     count += 1
         
         # 封存檔案
@@ -357,39 +444,51 @@ def import_cards():
 
 @app.route('/import/paste', methods=['GET', 'POST'])
 def import_paste():
-    if request.method == 'POST':
-        csv_data = request.form.get('csv_data')
-        card_type = request.form.get('card_type', 'recognize')
-        
-        if not csv_data:
-            flash("⚠️ 沒有貼上任何內容。", "error")
-            return redirect(url_for('import_paste'))
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        if request.method == 'POST':
+            csv_data = request.form.get('csv_data')
+            card_type = request.form.get('card_type', 'recognize')
+            deck_id = request.form.get('deck_id')
+
+            if not deck_id:
+                flash("⚠️ 請選擇要匯入的牌組。", "error")
+                return redirect(url_for('import_paste'))
             
-        try:
-            # 使用 io.StringIO 將字串模擬成檔案
-            import io
-            file_like_object = io.StringIO(csv_data)
-            rows = list(csv.reader(file_like_object))
-            
-            count = 0
-            with sqlite3.connect(DB_NAME) as conn:
+            if not csv_data:
+                flash("⚠️ 沒有貼上任何內容。", "error")
+                return redirect(url_for('import_paste'))
+                
+            try:
+                # 使用 io.StringIO 將字串模擬成檔案
+                import io
+                file_like_object = io.StringIO(csv_data)
+                rows = list(csv.reader(file_like_object))
+                
+                count = 0
                 today = datetime.now().date()
                 for row in rows:
                     if len(row) >= 2 and row[0].strip():
                         front = row[0].strip()
                         back = row[1].strip()
-                        conn.execute("INSERT INTO cards (front, back, next_review, card_type) VALUES (?, ?, ?, ?)", 
-                                     (front, back, today, card_type))
+                        cursor.execute("INSERT INTO cards (front, back, next_review, card_type, deck_id) VALUES (?, ?, ?, ?, ?)", 
+                                     (front, back, today, card_type, deck_id))
                         count += 1
-            
-            flash(f"✅ 成功從貼上內容匯入 {count} 張新卡片！", "success")
-            return redirect(url_for('index'))
+                
+                conn.commit()
+                flash(f"✅ 成功從貼上內容匯入 {count} 張新卡片！", "success")
+                return redirect(url_for('index'))
 
-        except Exception as e:
-            flash(f"⚠️ 匯入失敗: {e}", "error")
-            return redirect(url_for('import_paste'))
+            except Exception as e:
+                flash(f"⚠️ 匯入失敗: {e}", "error")
+                return redirect(url_for('import_paste'))
 
-    return render_template('import_paste.html')
+        cursor.execute("SELECT * FROM decks ORDER BY name")
+        decks = cursor.fetchall()
+
+    return render_template('import_paste.html', decks=decks)
 
 
 @app.route('/reset_progress', methods=['POST'])
