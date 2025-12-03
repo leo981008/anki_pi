@@ -20,7 +20,10 @@
                 <div style="display: flex; align-items: center; justify-content: space-between; background: var(--bg-color); padding: 10px 15px; border-radius: 8px;">
                     <span style="font-weight: 500;">{{ deck.name }}</span>
                     {% if deck.due_count > 0 %}
-                        <a href="{{ url_for('study', deck_id=deck.id) }}" class="btn btn-primary">學習 ({{ deck.due_count }})</a>
+                        <div style="display: flex; gap: 10px;">
+                            <a href="{{ url_for('study', deck_id=deck.id) }}" class="btn btn-primary" style="padding: 8px 15px;">傳統 ({{ deck.due_count }})</a>
+                            <a href="{{ url_for('swipe_mode', deck_id=deck.id) }}" class="btn btn-special" style="padding: 8px 15px;">速記 ({{ deck.due_count }})</a>
+                        </div>
                     {% else %}
                         <span style="color: #888; font-size: 0.9rem;">已完成</span>
                     {% endif %}
