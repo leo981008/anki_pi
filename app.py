@@ -219,6 +219,27 @@ def manage_decks():
                     except sqlite3.IntegrityError:
                         flash(f"⚠️ 牌組名稱「{deck_name}」已存在。", "error")
 
+            elif action == 'edit_folder':
+                folder_id = request.form.get('folder_id')
+                new_folder_name = request.form.get('new_folder_name')
+                if folder_id and new_folder_name:
+                    try:
+                        cursor.execute("UPDATE folders SET name = ? WHERE id = ?", (new_folder_name, folder_id))
+                        flash(f"資料夾名稱已更新為: {new_folder_name}", "success")
+                    except sqlite3.IntegrityError:
+                        flash(f"⚠️ 資料夾名稱「{new_folder_name}」已存在。", "error")
+
+            elif action == 'edit_deck':
+                deck_id = request.form.get('deck_id')
+                new_deck_name = request.form.get('new_deck_name')
+                new_folder_id = request.form.get('new_folder_id')
+                if deck_id and new_deck_name and new_folder_id:
+                    try:
+                        cursor.execute("UPDATE decks SET name = ?, folder_id = ? WHERE id = ?", (new_deck_name, new_folder_id, deck_id))
+                        flash(f"牌組「{new_deck_name}」已更新。", "success")
+                    except sqlite3.IntegrityError:
+                        flash(f"⚠️ 牌組名稱「{new_deck_name}」已存在。", "error")
+
             elif action == 'delete_folder':
                 folder_id = request.form.get('folder_id')
                 if folder_id:

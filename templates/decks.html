@@ -35,25 +35,87 @@
         <h4>現有內容</h4>
         {% for folder in folders %}
             <div style="background: var(--bg-color); padding: 15px; border-radius: 8px; margin-bottom: 1rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;" id="folder-display-{{ folder.id }}">
                     <h5 style="margin:0; font-size: 1.2rem;">📁 {{ folder.name }}</h5>
-                    <form method="POST" action="{{ url_for('manage_decks') }}" onsubmit="return confirm('極度危險！確定要刪除「{{ folder.name }}」資料夾嗎？\n所有包含的牌組和卡片都會被永久刪除！');" style="margin: 0;">
+                    <div style="display: flex; gap: 5px;">
+                        <button type="button" class="btn btn-secondary" style="padding: 5px 10px; font-size: 0.8rem;" onclick="toggleEdit('{{ folder.id }}')">編輯</button>
+                        <form method="POST" action="{{ url_for('manage_decks') }}" onsubmit="return confirm('極度危險！確定要刪除「{{ folder.name }}」資料夾嗎？\n所有包含的牌組和卡片都會被永久刪除！');" style="margin: 0;">
+                            <input type="hidden" name="folder_id" value="{{ folder.id }}">
+                            <button type="submit" name="action" value="delete_folder" class="btn btn-red" style="padding: 5px 10px; font-size: 0.8rem;">刪除資料夾</button>
+                        </form>
+                    </div>
+                </div>
+                <!-- Edit Folder Form (hidden by default) -->
+                <div style="display: none; margin-bottom: 10px;" id="folder-edit-{{ folder.id }}">
+                    <form method="POST" action="{{ url_for('manage_decks') }}" style="display: flex; gap: 10px; align-items: center;">
+                        <input type="hidden" name="action" value="edit_folder">
                         <input type="hidden" name="folder_id" value="{{ folder.id }}">
-                        <button type="submit" name="action" value="delete_folder" class="btn btn-red" style="padding: 5px 10px; font-size: 0.8rem;">刪除資料夾</button>
+                        <input type="text" name="new_folder_name" value="{{ folder.name }}" required style="flex-grow: 1; margin: 0;">
+                        <button type="submit" class="btn btn-green">儲存</button>
+                        <button type="button" class="btn btn-gray" onclick="toggleEdit('{{ folder.id }}')">取消</button>
                     </form>
                 </div>
-                <ul style="list-style: none; padding: 0; margin: 0;">
-                    {% for deck in decks if deck.folder_id == folder.id %}
-                    <li style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-top: 1px solid var(--border-color);">
-                        <span>📇 {{ deck.name }}</span>
-                        <form method="POST" action="{{ url_for('manage_decks') }}" onsubmit="return confirm('確定要刪除「{{ deck.name }}」牌組嗎？\n此牌組中的所有卡片也會被一併刪除！');" style="margin: 0;">
-                            <input type="hidden" name="deck_id" value="{{ deck.id }}">
-                            <button type="submit" name="action" value="delete_deck" class="btn btn-red" style="padding: 5px 10px; font-size: 0.8rem;">刪除</button>
-                        </form>
+                <li style="display: flex; flex-direction: column; padding: 10px; border-top: 1px solid var(--border-color);">
+                        <!-- Deck Display View -->
+                        <div id="deck-display-{{ deck.id }}" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                            <span>📇 {{ deck.name }}</span>
+                            <div style="display: flex; gap: 5px;">
+                                <button type="button" class="btn btn-secondary" style="padding: 5px 10px; font-size: 0.8rem;" onclick="toggleDeckEdit('{{ deck.id }}')">編輯</button>
+                                <form method="POST" action="{{ url_for('manage_decks') }}" onsubmit="return confirm('確定要刪除「{{ deck.name }}」牌組嗎？\n此牌組中的所有卡片也會被一併刪除！');" style="margin: 0;">
+                                    <input type="hidden" name="deck_id" value="{{ deck.id }}">
+                                    <button type="submit" name="action" value="delete_deck" class="btn btn-red" style="padding: 5px 10px; font-size: 0.8rem;">刪除</button>
+                                </form>
+                            </div>
+                        </div>
+                         <div id="deck-edit-{{ deck.id }}" style="display: none; width: 100%;">
+                             <form method="POST" action="{{ url_for('manage_decks') }}" style="display: flex; flex-direction: column; gap: 10px; align-items: stretch; width: 100%;">
+                                <input type="hidden" name="action" value="edit_deck">
+                                <input type="hidden" name="deck_id" value="{{ deck.id }}">
+                                <input type="text" name="new_deck_name" value="{{ deck.name }}" required placeholder="新的牌組名稱..." style="margin: 0;">
+                                <select name="new_folder_id" required>
+                                    <option value="" disabled>選擇資料夾</option>
+                                    {% for folder in folders %}
+                                    <option value="{{ folder.id }}" {% if folder.id == deck.folder_id %}selected{% endif %}>{{ folder.name }}</option>
+                                    {% endfor %}
+                                </select>
+                                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                                    <button type="submit" class="btn btn-green">儲存</button>
+                                    <button type="button" class="btn btn-gray" onclick="toggleDeckEdit('{{ deck.id }}')">取消</button>
+                                </div>
+                            </form>
+                        </div>
                     </li>
                     {% endfor %}
                 </ul>
             </div>
         {% endfor %}
     </div>
+
+<script>
+function toggleEdit(folderId) {
+    const displayDiv = document.getElementById(`folder-display-${folderId}`);
+    const editDiv = document.getElementById(`folder-edit-${folderId}`);
+    
+    if (displayDiv.style.display === 'none') {
+        displayDiv.style.display = 'flex';
+        editDiv.style.display = 'none';
+    } else {
+        displayDiv.style.display = 'none';
+        editDiv.style.display = 'flex';
+    }
+}
+
+function toggleDeckEdit(deckId) {
+    const displayDiv = document.getElementById(`deck-display-${deckId}`);
+    const editDiv = document.getElementById(`deck-edit-${deckId}`);
+    
+    if (displayDiv.style.display === 'none') {
+        displayDiv.style.display = 'flex';
+        editDiv.style.display = 'none';
+    } else {
+        displayDiv.style.display = 'none';
+        editDiv.style.display = 'flex';
+    }
+}
+</script>
 {% endblock %}
