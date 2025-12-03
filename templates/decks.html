@@ -35,7 +35,7 @@
                 <div id="folder-display-{{ folder.id }}" style="display: flex; justify-content: space-between; align-items: center;">
                     <span style="font-weight: 500;">📁 {{ folder.name }}</span>
                     <div style="display: flex; gap: 5px;">
-                        <a href="{{ url_for('manage_folder_content', folder_id=folder.id) }}" class="btn btn-secondary" style="padding: 5px 10px; font-size: 0.8rem;">管理內容</a>
+                        <a href="{{ url_for('manage_folder_content', folder_id=folder.id) }}" class="btn btn-primary" style="padding: 5px 10px; font-size: 0.8rem;">管理內容</a>
                         <button type="button" class="btn btn-secondary" style="padding: 5px 10px; font-size: 0.8rem;" onclick="toggleEdit('folder', {{ folder.id }})">編輯名稱</button>
                         <form method="POST" action="{{ url_for('manage_decks') }}" onsubmit="return confirm('確定要刪除「{{ folder.name }}」資料夾嗎？');" style="margin: 0;">
                             <input type="hidden" name="action" value="delete_folder">
