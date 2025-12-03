@@ -24,10 +24,17 @@
                 
                 <p style="margin-bottom: 1rem; color: #888;">你對這個單字的印象如何？</p>
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px;">
-                    <a href="{{ url_for('answer', deck_id=deck_id, card_id=card.id, quality=0) }}" class="btn btn-red">忘記</a>
-                    <a href="{{ url_for('answer', deck_id=deck_id, card_id=card.id, quality=3) }}" class="btn btn-special">困難</a>
-                    <a href="{{ url_for('answer', deck_id=deck_id, card_id=card.id, quality=4) }}" class="btn btn-primary">普通</a>
-                    <a href="{{ url_for('answer', deck_id=deck_id, card_id=card.id, quality=5) }}" class="btn btn-green">簡單</a>
+                    {% if deck_id %}
+                        <a href="{{ url_for('answer', card_id=card.id, quality=0, deck_id=deck_id) }}" class="btn btn-red">忘記</a>
+                        <a href="{{ url_for('answer', card_id=card.id, quality=3) }}" class="btn btn-special">困難</a>
+                        <a href="{{ url_for('answer', card_id=card.id, quality=4) }}" class="btn btn-primary">普通</a>
+                        <a href="{{ url_for('answer', card_id=card.id, quality=5) }}" class="btn btn-green">簡單</a>
+                    {% elif folder_id %}
+                        <a href="{{ url_for('answer', card_id=card.id, quality=0, folder_id=folder_id) }}" class="btn btn-red">忘記</a>
+                        <a href="{{ url_for('answer', card_id=card.id, quality=3, folder_id=folder_id) }}" class="btn btn-special">困難</a>
+                        <a href="{{ url_for('answer', card_id=card.id, quality=4, folder_id=folder_id) }}" class="btn btn-primary">普通</a>
+                        <a href="{{ url_for('answer', card_id=card.id, quality=5, folder_id=folder_id) }}" class="btn btn-green">簡單</a>
+                    {% endif %}
                 </div>
             </div>
 

@@ -380,48 +380,78 @@ def add_card():
 def study(deck_id):
     today = datetime.now().date()
     with sqlite3.connect(DB_NAME) as conn:
-        conn.row_factory = sqlite3.Row # 讓回傳結果可以用欄位名讀取
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        # 先計算該牌組總共有幾張要背
         cursor.execute("SELECT COUNT(id) FROM cards WHERE next_review <= ? AND deck_id = ?", (today, deck_id))
         due_count = cursor.fetchone()[0]
         
-        # 從指定牌組隨機取出今天要複習的卡片
         cursor.execute("SELECT * FROM cards WHERE next_review <= ? AND deck_id = ? ORDER BY RANDOM() LIMIT 1", (today, deck_id))
         card = cursor.fetchone()
     
     if card:
-        # 轉成字典以便修改顯示內容
         card_data = dict(card)
-        
-        original_english = card_data['front']
-        original_chinese = card_data['back']
-        
-        # 隨機決定是否反轉 (True=看中文猜英文, False=看英文猜中文)
-        # 如果卡片類型是 'spell'，則強制反轉
         is_reverse = random.choice([True, False]) if card_data['card_type'] == 'recognize' else True
         
         if is_reverse:
-            # 反向模式：提供中文 + 首尾字母提示
+            original_english = card_data['front']
+            original_chinese = card_data['back']
             if len(original_english) > 2:
                 hint = f"{original_english[0]}...{original_english[-1]}"
             else:
                 hint = f"{original_english[0]}..."
-            
             card_data['front'] = f"{original_chinese} ({hint})"
             card_data['back'] = original_english
-        else:
-            # 正向模式：不做修改
-            pass
-            
+
         return render_template('study.html', card=card_data, due_count=due_count, deck_id=deck_id)
     else:
-        return render_template('study.html', card=None, due_count=due_count, deck_id=deck_id)
+        return render_template('study.html', card=None, due_count=0, deck_id=deck_id)
 
-@app.route('/answer/<int:deck_id>/<int:card_id>/<int:quality>')
-def answer(deck_id, card_id, quality):
-    # 處理傳統模式的答案評分
+@app.route('/study/folder/<int:folder_id>')
+def study_folder(folder_id):
+    today = datetime.now().date()
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Get all deck_ids for the folder
+        cursor.execute("SELECT deck_id FROM deck_folders WHERE folder_id = ?", (folder_id,))
+        deck_ids = [row['deck_id'] for row in cursor.fetchall()]
+        
+        if not deck_ids:
+            return render_template('study.html', card=None, due_count=0, folder_id=folder_id)
+
+        # Build dynamic query for multiple decks
+        placeholders = ','.join('?' for _ in deck_ids)
+        
+        # Get total due count for all decks in the folder
+        cursor.execute(f"SELECT COUNT(id) FROM cards WHERE next_review <= ? AND deck_id IN ({placeholders})", [today] + deck_ids)
+        due_count = cursor.fetchone()[0]
+        
+        # Get one random card from all due cards in the folder
+        cursor.execute(f"SELECT * FROM cards WHERE next_review <= ? AND deck_id IN ({placeholders}) ORDER BY RANDOM() LIMIT 1", [today] + deck_ids)
+        card = cursor.fetchone()
+
+    if card:
+        card_data = dict(card)
+        is_reverse = random.choice([True, False]) if card_data['card_type'] == 'recognize' else True
+        
+        if is_reverse:
+            original_english = card_data['front']
+            original_chinese = card_data['back']
+            if len(original_english) > 2:
+                hint = f"{original_english[0]}...{original_english[-1]}"
+            else:
+                hint = f"{original_english[0]}..."
+            card_data['front'] = f"{original_chinese} ({hint})"
+            card_data['back'] = original_english
+            
+        return render_template('study.html', card=card_data, due_count=due_count, folder_id=folder_id)
+    else:
+        return render_template('study.html', card=None, due_count=0, folder_id=folder_id)
+
+@app.route('/answer/<int:card_id>/<int:quality>')
+def answer(card_id, quality):
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT interval, repetition, ef FROM cards WHERE id = ?", (card_id,))
@@ -430,17 +460,19 @@ def answer(deck_id, card_id, quality):
         if data:
             old_interval, old_rep, old_ef = data
             new_interval, new_rep, new_ef = sm2_algorithm(quality, old_interval, old_rep, old_ef)
-            
             new_date = datetime.now().date() + timedelta(days=new_interval)
             
-            cursor.execute("""
-                UPDATE cards 
-                SET interval = ?, repetition = ?, ef = ?, next_review = ? 
-                WHERE id = ?
-            """, (new_interval, new_rep, new_ef, new_date, card_id))
+            cursor.execute("UPDATE cards SET interval = ?, repetition = ?, ef = ?, next_review = ? WHERE id = ?", 
+                           (new_interval, new_rep, new_ef, new_date, card_id))
             conn.commit()
-            
-    return redirect(url_for('study', deck_id=deck_id))
+
+    # Redirect back to the correct study page (deck or folder)
+    if 'deck_id' in request.args:
+        return redirect(url_for('study', deck_id=request.args.get('deck_id')))
+    elif 'folder_id' in request.args:
+        return redirect(url_for('study_folder', folder_id=request.args.get('folder_id')))
+    else:
+        return redirect(url_for('index'))
 
 # --- AI 出題功能 ---
 @app.route('/ai_quiz', methods=['GET'])

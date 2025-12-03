@@ -17,10 +17,15 @@
         <h3>🚀 選擇牌組開始學習</h3>
         {% for folder in folders %}
             <details {% if folder.total_due > 0 %}open{% endif %} style="margin-bottom: 0.5rem;">
-                <summary style="font-size: 1.2rem; font-weight: 600; cursor: pointer;">
-                    📁 {{ folder.name }}
+                <summary style="font-size: 1.2rem; font-weight: 600; cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        📁 {{ folder.name }}
+                        {% if folder.total_due > 0 %}
+                            <span style="color: var(--red-color);">({{ folder.total_due }})</span>
+                        {% endif %}
+                    </div>
                     {% if folder.total_due > 0 %}
-                        <span style="color: var(--red-color);">({{ folder.total_due }})</span>
+                        <a href="{{ url_for('study_folder', folder_id=folder.id) }}" class="btn btn-primary" style="padding: 8px 15px; font-size: 0.9rem;">學習資料夾</a>
                     {% endif %}
                 </summary>
                 <div style="padding-left: 20px; margin-top: 10px; display: flex; flex-direction: column; gap: 15px;">
