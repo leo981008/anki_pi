@@ -1,3 +1,5 @@
+[Read this in English](README_en.md)
+
 # anki_pi
 
 這是一個基於 Flask 和 SM-2 演算法的輕量級記憶卡 (Anki-like) Web 應用程式，專為在樹莓派 (Raspberry Pi) 或其他低功耗設備上運行而設計。它結合了傳統的抽認卡學習、AI 出題以及與 Discord 的整合，讓學習過程更有效率和趣味。
