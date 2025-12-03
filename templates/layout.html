@@ -174,7 +174,16 @@
 <body>
     <header>
         <h1><a href="/">Pi Anki</a></h1>
-        <button class="theme-switch" id="theme-toggle-btn">☀️</button>
+        <div style="display: flex; align-items: center; gap: 15px;">
+            {% if current_user.is_authenticated %}
+                <a href="{{ url_for('public_decks') }}" style="color: var(--primary-color); text-decoration: none; font-weight: 500;">🌍 公開圖書館</a>
+                <span>Hello, {{ current_user.username }}</span>
+                <a href="{{ url_for('logout') }}" style="color: var(--text-color); text-decoration: none;">登出</a>
+            {% else %}
+                <a href="{{ url_for('login') }}" style="color: var(--text-color); text-decoration: none;">登入</a>
+            {% endif %}
+            <button class="theme-switch" id="theme-toggle-btn">☀️</button>
+        </div>
     </header>
     
     <main>

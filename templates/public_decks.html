@@ -1,0 +1,29 @@
+{% extends "layout.html" %}
+{% block content %}
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <h3>🌍 公開牌組圖書館</h3>
+        <a href="/" class="btn btn-gray">返回</a>
+    </div>
+
+    <div class="card">
+        {% if decks %}
+            <ul style="list-style: none; padding: 0; margin: 0;">
+                {% for deck in decks %}
+                    <li style="display: flex; justify-content: space-between; align-items: center; padding: 15px; border-bottom: 1px solid var(--border-color);">
+                        <div>
+                            <div style="font-weight: 600; font-size: 1.1em;">📇 {{ deck.deck_name }}</div>
+                            <div style="font-size: 0.9em; color: #666;">
+                                👤 作者: {{ deck.username }} | 📂 原分類: {{ deck.folder_name }} | 🔢 卡片數: {{ deck.card_count }}
+                            </div>
+                        </div>
+                        <form method="POST" action="{{ url_for('clone_public_deck', deck_id=deck.deck_id) }}" onsubmit="return confirm('確定要複製「{{ deck.deck_name }}」到您的牌組嗎？');" style="margin: 0;">
+                            <button type="submit" class="btn btn-primary">📥 複製到我的牌組</button>
+                        </form>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="text-center" style="color: #666; margin: 2rem 0;">目前沒有其他使用者分享的公開牌組。</p>
+        {% endif %}
+    </div>
+{% endblock %}
