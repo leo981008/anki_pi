@@ -19,8 +19,14 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev_secret_key_should_be_changed')
 
 # --- 資料庫初始化 ---
+def get_db_connection():
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
 def init_db():
-    with sqlite3.connect(DB_NAME) as conn:
+    with get_db_connection() as conn:
         cursor = conn.cursor()
 
         # --- Schema and Migration to Many-to-Many ---
@@ -177,8 +183,7 @@ def ask_ollama(prompt):
 @app.route('/')
 def index():
     today = datetime.now().date()
-    with sqlite3.connect(DB_NAME) as conn:
-        conn.row_factory = sqlite3.Row
+    with get_db_connection() as conn:
         cursor = conn.cursor()
         
         cursor.execute("SELECT * FROM folders ORDER BY name")
@@ -223,8 +228,7 @@ def index():
 
 @app.route('/decks', methods=['GET', 'POST'])
 def manage_decks():
-    with sqlite3.connect(DB_NAME) as conn:
-        conn.row_factory = sqlite3.Row
+    with get_db_connection() as conn:
         cursor = conn.cursor()
 
         if request.method == 'POST':
@@ -312,9 +316,15 @@ def manage_decks():
 
 @app.route('/folder/<int:folder_id>/manage', methods=['GET', 'POST'])
 def manage_folder_content(folder_id):
-    with sqlite3.connect(DB_NAME) as conn:
-        conn.row_factory = sqlite3.Row
+    with get_db_connection() as conn:
         cursor = conn.cursor()
+
+        # Check if folder exists
+        cursor.execute("SELECT * FROM folders WHERE id = ?", (folder_id,))
+        folder = cursor.fetchone()
+
+        if not folder:
+            return "Folder not found", 404
 
         if request.method == 'POST':
             selected_deck_ids = request.form.getlist('deck_ids')
@@ -330,8 +340,7 @@ def manage_folder_content(folder_id):
             return redirect(url_for('manage_decks'))
 
         # GET request
-        cursor.execute("SELECT * FROM folders WHERE id = ?", (folder_id,))
-        folder = cursor.fetchone()
+        # Folder is already fetched above
 
         cursor.execute("SELECT id, name FROM decks ORDER BY name")
         all_decks = cursor.fetchall()
@@ -347,8 +356,7 @@ def manage_folder_content(folder_id):
 
 @app.route('/add', methods=['GET', 'POST'])
 def add_card():
-    with sqlite3.connect(DB_NAME) as conn:
-        conn.row_factory = sqlite3.Row
+    with get_db_connection() as conn:
         cursor = conn.cursor()
 
         if request.method == 'POST':
@@ -379,8 +387,7 @@ def add_card():
 @app.route('/study/<int:deck_id>')
 def study(deck_id):
     today = datetime.now().date()
-    with sqlite3.connect(DB_NAME) as conn:
-        conn.row_factory = sqlite3.Row
+    with get_db_connection() as conn:
         cursor = conn.cursor()
         
         cursor.execute("SELECT COUNT(id) FROM cards WHERE next_review <= ? AND deck_id = ?", (today, deck_id))
@@ -410,8 +417,7 @@ def study(deck_id):
 @app.route('/study/folder/<int:folder_id>')
 def study_folder(folder_id):
     today = datetime.now().date()
-    with sqlite3.connect(DB_NAME) as conn:
-        conn.row_factory = sqlite3.Row
+    with get_db_connection() as conn:
         cursor = conn.cursor()
 
         # Get all deck_ids for the folder
@@ -452,7 +458,7 @@ def study_folder(folder_id):
 
 @app.route('/answer/<int:card_id>/<int:quality>')
 def answer(card_id, quality):
-    with sqlite3.connect(DB_NAME) as conn:
+    with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT interval, repetition, ef FROM cards WHERE id = ?", (card_id,))
         data = cursor.fetchone()
@@ -514,8 +520,7 @@ def swipe_mode(deck_id):
 @app.route('/api/next_card/<int:deck_id>')
 def api_next_card(deck_id):
     today = datetime.now().date()
-    with sqlite3.connect(DB_NAME) as conn:
-        conn.row_factory = sqlite3.Row
+    with get_db_connection() as conn:
         cursor = conn.cursor()
 
         # 先計算該牌組總共有幾張要背
@@ -573,7 +578,7 @@ def api_submit_swipe():
     # 轉換為 SM-2 品質分數
     quality = 5 if direction == 'right' else 0
 
-    with sqlite3.connect(DB_NAME) as conn:
+    with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT interval, repetition, ef FROM cards WHERE id = ?", (card_id,))
         row = cursor.fetchone()
@@ -615,7 +620,7 @@ def import_cards():
             with open(TARGET_FILE, 'r', encoding='cp950') as f: # Big5 for traditional Chinese
                 rows = list(csv.reader(f))
 
-        with sqlite3.connect(DB_NAME) as conn:
+        with get_db_connection() as conn:
             today = datetime.now().date()
             for row in rows:
                 if len(row) >= 2 and row[0].strip():
@@ -644,8 +649,7 @@ def import_cards():
 
 @app.route('/import/paste', methods=['GET', 'POST'])
 def import_paste():
-    with sqlite3.connect(DB_NAME) as conn:
-        conn.row_factory = sqlite3.Row
+    with get_db_connection() as conn:
         cursor = conn.cursor()
 
         if request.method == 'POST':
@@ -695,7 +699,7 @@ def import_paste():
 @app.route('/reset_progress', methods=['POST'])
 def reset_progress():
     today = datetime.now().date()
-    with sqlite3.connect(DB_NAME) as conn:
+    with get_db_connection() as conn:
         cursor = conn.cursor()
         # 將所有卡片重置為全新狀態
         cursor.execute("""
@@ -708,7 +712,7 @@ def reset_progress():
 
 @app.route('/delete_all_cards', methods=['POST'])
 def delete_all_cards():
-    with sqlite3.connect(DB_NAME) as conn:
+    with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM cards")
         conn.commit()
