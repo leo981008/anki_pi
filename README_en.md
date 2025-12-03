@@ -22,7 +22,7 @@ This is a lightweight Anki-like web application based on Flask and the SM-2 algo
 
 ## 🛠️ Technology Stack
 
-- **Backend:** Python, Flask
+- **Backend:** Python, Flask, Flask-Login
 - **Frontend:** Native HTML/CSS/JavaScript
 - **Database:** SQLite
 - **AI Integration:** Ollama (supports models like Gemma, Llama3, Mistral)
@@ -31,6 +31,12 @@ This is a lightweight Anki-like web application based on Flask and the SM-2 algo
 ---
 
 ## 🚀 Quick Start
+
+### User System Explanation
+This application now includes a full **multi-user system**.
+- **First Registration:** The first user to register automatically becomes an **administrator** and inherits all existing (unowned) data.
+- **Subsequent Users:** Users who register later will have their own separate folders, decks, and cards.
+- **Public Decks:** Users can set their decks to "public," allowing other users to clone these decks into their own accounts for study.
 
 ### 1. Environment Setup
 

@@ -26,7 +26,12 @@
                 <div style="padding-left: 20px; margin-top: 10px; display: flex; flex-direction: column; gap: 15px;">
                     {% for deck in folder.decks %}
                         <div style="display: flex; align-items: center; justify-content: space-between; background: var(--bg-color); padding: 10px 15px; border-radius: 8px;">
-                            <span style="font-weight: 500;">📇 {{ deck.name }}</span>
+                            <span style="font-weight: 500;">
+                                📇 {{ deck.name }}
+                                {% if deck.is_public %}
+                                    <span title="公開牌組" style="cursor: help; color: var(--primary-color);">🌐</span>
+                                {% endif %}
+                            </span>
                             {% if deck.due_count > 0 %}
                                 <div style="display: flex; gap: 10px;">
                                     <a href="{{ url_for('study', deck_id=deck.id) }}" class="btn btn-primary" style="padding: 8px 15px;">傳統 ({{ deck.due_count }})</a>
