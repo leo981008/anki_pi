@@ -7,8 +7,12 @@
             <label for="deck_id">選擇要匯入的牌組:</label>
             <select name="deck_id" id="deck_id" required>
                 <option value="" disabled selected>-- 請選擇 --</option>
-                {% for deck in decks %}
-                    <option value="{{ deck.id }}">{{ deck.name }}</option>
+                {% for folder in folders %}
+                    <optgroup label="{{ folder.name }}">
+                        {% for deck in folder.decks %}
+                            <option value="{{ deck.id }}">{{ deck.name }}</option>
+                        {% endfor %}
+                    </optgroup>
                 {% endfor %}
             </select>
         </div>

@@ -22,11 +22,22 @@ app.secret_key = os.environ.get('SECRET_KEY', 'dev_secret_key_should_be_changed'
 def init_db():
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
+        
+        # 建立 folders 表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS folders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE
+            )
+        ''')
+
         # 建立 decks 表
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS decks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE
+                name TEXT NOT NULL UNIQUE,
+                folder_id INTEGER,
+                FOREIGN KEY (folder_id) REFERENCES folders (id)
             )
         ''')
         
@@ -47,25 +58,42 @@ def init_db():
         ''')
 
         # --- 舊資料庫遷移 ---
-        # 檢查是否有預設牌組，沒有則建立
+        # 檢查是否有預設資料夾
+        cursor.execute("SELECT id FROM folders WHERE name = '預設資料夾'")
+        default_folder = cursor.fetchone()
+        if not default_folder:
+            cursor.execute("INSERT INTO folders (name) VALUES ('預設資料夾')")
+            default_folder_id = cursor.lastrowid
+        else:
+            default_folder_id = default_folder[0]
+
+        # 檢查 decks 表是否有 folder_id 欄位
+        cursor.execute("PRAGMA table_info(decks)")
+        deck_columns = [column[1] for column in cursor.fetchall()]
+        if 'folder_id' not in deck_columns:
+            cursor.execute("ALTER TABLE decks ADD COLUMN folder_id INTEGER")
+            # 將所有舊牌組歸入預設資料夾
+            cursor.execute("UPDATE decks SET folder_id = ? WHERE folder_id IS NULL", (default_folder_id,))
+
+        # 檢查是否有預設牌組
         cursor.execute("SELECT id FROM decks WHERE name = '預設牌組'")
         default_deck = cursor.fetchone()
         if not default_deck:
-            cursor.execute("INSERT INTO decks (name) VALUES ('預設牌組')")
+            cursor.execute("INSERT INTO decks (name, folder_id) VALUES ('預設牌組', ?)", (default_folder_id,))
             default_deck_id = cursor.lastrowid
         else:
             default_deck_id = default_deck[0]
 
         # 檢查 cards 表是否有 deck_id 欄位
         cursor.execute("PRAGMA table_info(cards)")
-        columns = [column[1] for column in cursor.fetchall()]
-        if 'deck_id' not in columns:
+        card_columns = [column[1] for column in cursor.fetchall()]
+        if 'deck_id' not in card_columns:
             cursor.execute("ALTER TABLE cards ADD COLUMN deck_id INTEGER")
             # 將所有舊卡片歸入預設牌組
             cursor.execute("UPDATE cards SET deck_id = ? WHERE deck_id IS NULL", (default_deck_id,))
 
-        # 檢查 card_type 欄位是否存在，不存在則新增 (確保舊資料庫相容)
-        if 'card_type' not in columns:
+        # 檢查 card_type 欄位是否存在
+        if 'card_type' not in card_columns:
             cursor.execute("ALTER TABLE cards ADD COLUMN card_type TEXT NOT NULL DEFAULT 'recognize'")
         
         conn.commit()
@@ -122,18 +150,35 @@ def index():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        # 取得所有牌組，並計算每個牌組的到期卡片數量
-        cursor.execute("""
-            SELECT 
-                d.id, 
-                d.name, 
-                COUNT(c.id) as due_count
-            FROM decks d
-            LEFT JOIN cards c ON d.id = c.deck_id AND c.next_review <= ?
-            GROUP BY d.id, d.name
-            ORDER BY d.name
-        """, (today,))
-        decks_with_due_counts = cursor.fetchall()
+        # 取得所有資料夾
+        cursor.execute("SELECT * FROM folders ORDER BY name")
+        folders = cursor.fetchall()
+        
+        folders_with_decks = []
+        total_due_count = 0
+
+        for folder in folders:
+            folder_dict = dict(folder)
+            
+            # 取得該資料夾中的所有牌組，並計算每個牌組的到期卡片數量
+            cursor.execute("""
+                SELECT 
+                    d.id, 
+                    d.name, 
+                    COUNT(c.id) as due_count
+                FROM decks d
+                LEFT JOIN cards c ON d.id = c.deck_id AND c.next_review <= ?
+                WHERE d.folder_id = ?
+                GROUP BY d.id, d.name
+                ORDER BY d.name
+            """, (today, folder['id']))
+            decks_with_due_counts = cursor.fetchall()
+            
+            folder_dict['decks'] = decks_with_due_counts
+            folder_dict['total_due'] = sum(d['due_count'] for d in decks_with_due_counts)
+            total_due_count += folder_dict['total_due']
+            
+            folders_with_decks.append(folder_dict)
 
         # 取得所有卡片並附上牌組名稱
         cursor.execute("""
@@ -144,9 +189,7 @@ def index():
         """)
         cards = cursor.fetchall()
         
-    total_due_count = sum(d['due_count'] for d in decks_with_due_counts)
-        
-    return render_template('index.html', decks=decks_with_due_counts, cards=cards, total_due_count=total_due_count)
+    return render_template('index.html', folders=folders_with_decks, cards=cards, total_due_count=total_due_count)
 
 @app.route('/decks', methods=['GET', 'POST'])
 def manage_decks():
@@ -156,19 +199,44 @@ def manage_decks():
 
         if request.method == 'POST':
             action = request.form.get('action')
-            if action == 'add':
-                deck_name = request.form.get('deck_name')
-                if deck_name:
+            
+            if action == 'add_folder':
+                folder_name = request.form.get('folder_name')
+                if folder_name:
                     try:
-                        cursor.execute("INSERT INTO decks (name) VALUES (?)", (deck_name,))
+                        cursor.execute("INSERT INTO folders (name) VALUES (?)", (folder_name,))
+                        flash(f"成功新增資料夾: {folder_name}", "success")
+                    except sqlite3.IntegrityError:
+                        flash(f"⚠️ 資料夾名稱「{folder_name}」已存在。", "error")
+
+            elif action == 'add_deck':
+                deck_name = request.form.get('deck_name')
+                folder_id = request.form.get('folder_id')
+                if deck_name and folder_id:
+                    try:
+                        cursor.execute("INSERT INTO decks (name, folder_id) VALUES (?, ?)", (deck_name, folder_id))
                         flash(f"成功新增牌組: {deck_name}", "success")
                     except sqlite3.IntegrityError:
                         flash(f"⚠️ 牌組名稱「{deck_name}」已存在。", "error")
-            
-            elif action == 'delete':
+
+            elif action == 'delete_folder':
+                folder_id = request.form.get('folder_id')
+                if folder_id:
+                    # Find decks in folder
+                    cursor.execute("SELECT id FROM decks WHERE folder_id = ?", (folder_id,))
+                    deck_ids_to_delete = [row['id'] for row in cursor.fetchall()]
+                    if deck_ids_to_delete:
+                        # Delete cards in those decks
+                        cursor.execute(f"DELETE FROM cards WHERE deck_id IN ({','.join('?' for _ in deck_ids_to_delete)})", deck_ids_to_delete)
+                    # Delete decks
+                    cursor.execute("DELETE FROM decks WHERE folder_id = ?", (folder_id,))
+                    # Delete folder
+                    cursor.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
+                    flash("已成功刪除資料夾及所有包含的內容。", "success")
+
+            elif action == 'delete_deck':
                 deck_id = request.form.get('deck_id')
                 if deck_id:
-                    # 刪除牌組以及該牌組中的所有卡片
                     cursor.execute("DELETE FROM cards WHERE deck_id = ?", (deck_id,))
                     cursor.execute("DELETE FROM decks WHERE id = ?", (deck_id,))
                     flash("已成功刪除牌組及相關卡片。", "success")
@@ -176,10 +244,15 @@ def manage_decks():
             conn.commit()
             return redirect(url_for('manage_decks'))
 
+        # 取得所有資料夾
+        cursor.execute("SELECT * FROM folders ORDER BY name")
+        folders = cursor.fetchall()
+        
+        # 取得所有牌組，並附上資料夾ID
         cursor.execute("SELECT * FROM decks ORDER BY name")
         decks = cursor.fetchall()
         
-    return render_template('decks.html', decks=decks)
+    return render_template('decks.html', decks=decks, folders=folders)
 
 @app.route('/add', methods=['GET', 'POST'])
 def add_card():
@@ -195,17 +268,24 @@ def add_card():
             today = datetime.now().date()
             
             cursor.execute(
-                "INSERT INTO cards (front, back, next_review, card_type, deck_id) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO cards (front, back, next_review, card_type, deck_id, interval, repetition, ef) VALUES (?, ?, ?, ?, ?, 0, 0, 2.5)",
                 (front, back, today, card_type, deck_id)
             )
             conn.commit()
             flash(f"成功新增卡片: {front}", "success")
             return redirect(url_for('add_card'))
 
-        cursor.execute("SELECT * FROM decks ORDER BY name")
-        decks = cursor.fetchall()
+        # 取得巢狀的資料夾與牌組結構
+        cursor.execute("SELECT * FROM folders ORDER BY name")
+        folders_raw = cursor.fetchall()
+        folders = []
+        for folder in folders_raw:
+            folder_dict = dict(folder)
+            cursor.execute("SELECT * FROM decks WHERE folder_id = ? ORDER BY name", (folder['id'],))
+            folder_dict['decks'] = cursor.fetchall()
+            folders.append(folder_dict)
         
-    return render_template('add.html', decks=decks)
+    return render_template('add.html', folders=folders)
 # --- 傳統學習模式 (含隨機中英切換) ---
 @app.route('/study/<int:deck_id>')
 def study(deck_id):
@@ -422,7 +502,7 @@ def import_cards():
                     back = row[1].strip()
                     # 檢查是否有第三欄，且內容為 'spell'
                     card_type = 'spell' if len(row) > 2 and row[2].strip().lower() == 'spell' else 'recognize'
-                    conn.execute("INSERT INTO cards (front, back, next_review, card_type, deck_id) VALUES (?, ?, ?, ?, ?)", 
+                    conn.execute("INSERT INTO cards (front, back, next_review, card_type, deck_id, interval, repetition, ef) VALUES (?, ?, ?, ?, ?, 0, 0, 2.5)", 
                                  (front, back, today, card_type, deck_id))
                     count += 1
         
@@ -472,7 +552,7 @@ def import_paste():
                     if len(row) >= 2 and row[0].strip():
                         front = row[0].strip()
                         back = row[1].strip()
-                        cursor.execute("INSERT INTO cards (front, back, next_review, card_type, deck_id) VALUES (?, ?, ?, ?, ?)", 
+                        cursor.execute("INSERT INTO cards (front, back, next_review, card_type, deck_id, interval, repetition, ef) VALUES (?, ?, ?, ?, ?, 0, 0, 2.5)", 
                                      (front, back, today, card_type, deck_id))
                         count += 1
                 
@@ -484,10 +564,17 @@ def import_paste():
                 flash(f"⚠️ 匯入失敗: {e}", "error")
                 return redirect(url_for('import_paste'))
 
-        cursor.execute("SELECT * FROM decks ORDER BY name")
-        decks = cursor.fetchall()
+        # 取得巢狀的資料夾與牌組結構
+        cursor.execute("SELECT * FROM folders ORDER BY name")
+        folders_raw = cursor.fetchall()
+        folders = []
+        for folder in folders_raw:
+            folder_dict = dict(folder)
+            cursor.execute("SELECT * FROM decks WHERE folder_id = ? ORDER BY name", (folder['id'],))
+            folder_dict['decks'] = cursor.fetchall()
+            folders.append(folder_dict)
 
-    return render_template('import_paste.html', decks=decks)
+    return render_template('import_paste.html', folders=folders)
 
 
 @app.route('/reset_progress', methods=['POST'])

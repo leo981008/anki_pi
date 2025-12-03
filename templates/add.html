@@ -4,8 +4,13 @@
     <form method="POST">
         <label for="deck_id">選擇牌組:</label>
         <select name="deck_id" id="deck_id" required>
-            {% for deck in decks %}
-                <option value="{{ deck.id }}">{{ deck.name }}</option>
+            <option value="" disabled selected>-- 請選擇 --</option>
+            {% for folder in folders %}
+                <optgroup label="{{ folder.name }}">
+                    {% for deck in folder.decks %}
+                        <option value="{{ deck.id }}">{{ deck.name }}</option>
+                    {% endfor %}
+                </optgroup>
             {% endfor %}
         </select>
 

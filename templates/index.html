@@ -15,21 +15,33 @@
     <!-- Deck List / Study Modes -->
     <div class="card">
         <h3>🚀 選擇牌組開始學習</h3>
-        <div style="display: flex; flex-direction: column; gap: 15px;">
-            {% for deck in decks %}
-                <div style="display: flex; align-items: center; justify-content: space-between; background: var(--bg-color); padding: 10px 15px; border-radius: 8px;">
-                    <span style="font-weight: 500;">{{ deck.name }}</span>
-                    {% if deck.due_count > 0 %}
-                        <div style="display: flex; gap: 10px;">
-                            <a href="{{ url_for('study', deck_id=deck.id) }}" class="btn btn-primary" style="padding: 8px 15px;">傳統 ({{ deck.due_count }})</a>
-                            <a href="{{ url_for('swipe_mode', deck_id=deck.id) }}" class="btn btn-special" style="padding: 8px 15px;">速記 ({{ deck.due_count }})</a>
-                        </div>
-                    {% else %}
-                        <span style="color: #888; font-size: 0.9rem;">已完成</span>
+        {% for folder in folders %}
+            <details {% if folder.total_due > 0 %}open{% endif %} style="margin-bottom: 0.5rem;">
+                <summary style="font-size: 1.2rem; font-weight: 600; cursor: pointer;">
+                    📁 {{ folder.name }}
+                    {% if folder.total_due > 0 %}
+                        <span style="color: var(--red-color);">({{ folder.total_due }})</span>
                     {% endif %}
+                </summary>
+                <div style="padding-left: 20px; margin-top: 10px; display: flex; flex-direction: column; gap: 15px;">
+                    {% for deck in folder.decks %}
+                        <div style="display: flex; align-items: center; justify-content: space-between; background: var(--bg-color); padding: 10px 15px; border-radius: 8px;">
+                            <span style="font-weight: 500;">📇 {{ deck.name }}</span>
+                            {% if deck.due_count > 0 %}
+                                <div style="display: flex; gap: 10px;">
+                                    <a href="{{ url_for('study', deck_id=deck.id) }}" class="btn btn-primary" style="padding: 8px 15px;">傳統 ({{ deck.due_count }})</a>
+                                    <a href="{{ url_for('swipe_mode', deck_id=deck.id) }}" class="btn btn-special" style="padding: 8px 15px;">速記 ({{ deck.due_count }})</a>
+                                </div>
+                            {% else %}
+                                <span style="color: #888; font-size: 0.9rem;">已完成</span>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
                 </div>
-            {% endfor %}
-        </div>
+            </details>
+        {% else %}
+            <p>沒有任何資料夾或牌組。</p>
+        {% endfor %}
     </div>
 
 
@@ -39,14 +51,18 @@
         <div class="card">
             <h3>🛠️ 管理</h3>
             <div style="display: flex; flex-direction: column; gap: 10px;">
-                <a href="{{ url_for('manage_decks') }}" class="btn btn-gray" style="width: 100%;">🗂️ 管理牌組</a>
+                <a href="{{ url_for('manage_decks') }}" class="btn btn-gray" style="width: 100%;">🗂️ 管理資料夾與牌組</a>
                 <a href="/add" class="btn btn-green" style="width: 100%;">✏️ 新增卡片</a>
                 <a href="/import/paste" class="btn btn-red" style="width: 100%;">📋 貼上內容匯入</a>
                 <form action="/import" method="POST" style="margin:0;" onsubmit="return confirm('確定要從 data.csv 檔案匯入新單字嗎？');">
                     <select name="deck_id" required style="margin-bottom: 10px;">
                         <option value="" disabled selected>選擇要匯入的牌組</option>
-                        {% for deck in decks %}
-                            <option value="{{ deck.id }}">{{ deck.name }}</option>
+                        {% for folder in folders %}
+                            <optgroup label="{{ folder.name }}">
+                                {% for deck in folder.decks %}
+                                    <option value="{{ deck.id }}">{{ deck.name }}</option>
+                                {% endfor %}
+                            </optgroup>
                         {% endfor %}
                     </select>
                     <button type="submit" class="btn btn-gray" style="width: 100%;">📂 從檔案匯入</button>
