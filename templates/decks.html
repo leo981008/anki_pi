@@ -24,6 +24,10 @@
                     {% endfor %}
                 </select>
                 <input type="text" name="deck_name" placeholder="輸入新牌組名稱..." required style="margin: 0;">
+                <label style="display: flex; align-items: center; gap: 10px; font-size: 0.9em;">
+                    <input type="checkbox" name="is_public" style="width: auto; margin: 0;">
+                    公開此牌組 (允許其他使用者複製)
+                </label>
                 <button type="submit" name="action" value="add_deck" class="btn btn-primary">新增</button>
             </form>
         </div>
