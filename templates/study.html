@@ -15,6 +15,10 @@
                 <button onclick="speakText(document.getElementById('card-front-text').innerText)" class="btn btn-gray" style="border-radius: 50%; width: 45px; height: 45px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 1.2rem; margin-top: 1rem;">
                     🔊
                 </button>
+                <div style="margin-top: 10px;">
+                    <button id="ai-btn-{{ card.id }}" class="btn btn-gray" style="border: 1px solid #17a2b8; color: #17a2b8; background: white; font-size: 0.9rem;" onclick="generateSentence('{{ card.front|escape }}', this)">✨ AI 造句</button>
+                    <div id="ai-sentence-{{ card.id }}" style="margin-top: 10px; color: #28a745; font-style: italic;"></div>
+                </div>
             </div>
 
             <div id="ans" style="display:none; width: 100%; text-align: center;">
@@ -49,4 +53,33 @@
             <a href="/" class="btn btn-primary" style="margin-top: 1rem;">回首頁</a>
         </div>
     {% endif %}
+
+    <script>
+        async function generateSentence(word, btn) {
+            btn.disabled = true;
+            btn.innerHTML = '✨ 產生中...';
+            const outputDiv = document.getElementById('ai-sentence-' + {{ card.id if card else 0 }});
+
+            try {
+                const res = await fetch('/api/ai_sentence', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ word: word })
+                });
+                const data = await res.json();
+
+                if (data.sentence) {
+                    outputDiv.innerText = data.sentence;
+                    btn.style.display = 'none'; // Hide button on success
+                } else {
+                    btn.innerHTML = '❌ 失敗';
+                    setTimeout(() => { btn.disabled = false; btn.innerHTML = '✨ AI 造句'; }, 2000);
+                }
+            } catch (err) {
+                console.error(err);
+                btn.innerHTML = '❌ 錯誤';
+                setTimeout(() => { btn.disabled = false; btn.innerHTML = '✨ AI 造句'; }, 2000);
+            }
+        }
+    </script>
 {% endblock %}
