@@ -86,6 +86,7 @@
             cursor: pointer;
             transition: transform 0.3s ease, opacity 0.3s ease;
             position: relative; 
+            overflow-y: auto; /* 允許內容多時捲動 */
         }
         
         .flashcard.flipped {
@@ -164,6 +165,34 @@
         }
         .tts-btn:active { background: #eee; }
 
+        /* AI 造句按鈕 */
+        .ai-btn {
+            margin-top: 15px;
+            padding: 8px 16px;
+            background-color: #e1f5fe;
+            color: #0288d1;
+            border: none;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .ai-btn:active { background-color: #b3e5fc; }
+        .ai-btn:disabled { background-color: #eee; color: #999; cursor: not-allowed; }
+
+        .ai-result {
+            margin-top: 15px;
+            padding: 10px;
+            background: #f1f8e9;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            color: #33691e;
+            text-align: left;
+            width: 90%;
+            white-space: pre-wrap;
+            display: none;
+        }
+
         .click-hint {
             margin-top: auto; 
             font-size: 0.4em; 
@@ -225,6 +254,17 @@
             cursor: pointer;
         }
 
+        .secondary-action-btn {
+            padding: 10px 20px;
+            font-size: 1rem;
+            background: #fff;
+            color: #555;
+            border: 1px solid #ddd;
+            border-radius: 50px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            cursor: pointer;
+        }
+
         .offline-badge {
             display: inline-block;
             padding: 4px 8px;
@@ -265,9 +305,14 @@
     <div id="start-screen">
         <div style="text-align:center; color:#666; margin-bottom: 20px;">
             <h3>今日學習</h3>
-            <p>請點擊下方按鈕開始下載今日單字</p>
+            <p id="start-message">請點擊下方按鈕開始下載今日單字</p>
         </div>
-        <button class="main-action-btn" onclick="startDailySession()">⬇ 下載今日課程</button>
+
+        <!-- 動態按鈕區 -->
+        <div id="start-buttons" style="display:flex; flex-direction:column; gap:15px; align-items:center;">
+             <button class="main-action-btn" onclick="startDailySession(true)">⬇ 下載今日課程</button>
+        </div>
+
         <div style="margin-top:20px; font-size: 0.9em; color:#888;">
             <p>支援離線使用：<br>下載後即使斷網也可以繼續學習</p>
         </div>
@@ -314,6 +359,7 @@
                 },
             });
             await updateSyncStatus();
+            await checkLocalData();
         }
 
         // 2. 註冊 Service Worker
@@ -338,11 +384,43 @@
         window.addEventListener('offline', updateOnlineStatus);
         updateOnlineStatus();
 
+        // 檢查本地是否有資料，決定顯示按鈕
+        async function checkLocalData() {
+            const db = await dbPromise;
+            const count = await db.count('cards');
+
+            const btnArea = document.getElementById('start-buttons');
+            const msgArea = document.getElementById('start-message');
+
+            if (count > 0) {
+                msgArea.innerText = `本地還有 ${count} 張卡片未完成`;
+                btnArea.innerHTML = `
+                    <button class="main-action-btn" onclick="startDailySession(false)">▶ 繼續學習</button>
+                    <button class="secondary-action-btn" onclick="startDailySession(true)">↻ 更新 / 重新下載</button>
+                `;
+            } else {
+                msgArea.innerText = "請點擊下方按鈕開始下載今日單字";
+                btnArea.innerHTML = `
+                    <button class="main-action-btn" onclick="startDailySession(true)">⬇ 下載今日課程</button>
+                `;
+            }
+        }
+
         // 4. 開始今日課程 (下載流程)
-        async function startDailySession() {
+        async function startDailySession(forceUpdate = false) {
+            const db = await dbPromise;
+
+            // 如果不是強制更新，且本地有資料，直接開始
+            if (!forceUpdate) {
+                const count = await db.count('cards');
+                if (count > 0) {
+                    loadFromLocal();
+                    return;
+                }
+            }
+
             if (!navigator.onLine) {
-                // 如果離線，直接嘗試從 DB 讀取
-                alert("目前為離線狀態，嘗試載入已下載的卡片...");
+                alert("目前為離線狀態，無法下載新課程。將嘗試載入本地資料...");
                 loadFromLocal();
                 return;
             }
@@ -363,34 +441,40 @@
                     return;
                 }
 
-                const db = await dbPromise;
                 const tx = db.transaction(['cards', 'audio'], 'readwrite');
 
-                // 清空舊卡片 (Optional: 若要保留可不做，但這裡是 Daily Session)
+                // 清空舊卡片資料，準備寫入新的 (保留 Audio Store)
                 await tx.objectStore('cards').clear();
-                // Audio 不一定要清空，可以當快取
 
                 let downloadedCount = 0;
+                let skipCount = 0;
                 const total = data.total;
 
-                // B. 逐一下載語音
-                // 我們不使用 Promise.all 全部並發，以免塞爆 Server/Client，改用批次或序列
+                // B. 逐一下載語音 (Smart Download)
                 for (const card of data.cards) {
-                    statusText.innerText = `下載語音 (${downloadedCount + 1}/${total}): ${card.front.replace(/\n/g, ' ')}`;
+                    statusText.innerText = `處理語音 (${downloadedCount + 1}/${total}): ${card.front.replace(/\n/g, ' ')}`;
 
                     // 下載 Front Audio
                     if (card.speech) {
-                        const blob = await fetchTTS(card.speech);
-                        if (blob) {
-                            await db.put('audio', blob, `tts_${card.id}_front`);
+                        const key = `tts_${card.id}_front`;
+                        const existing = await db.get('audio', key);
+                        if (!existing) {
+                            const blob = await fetchTTS(card.speech);
+                            if (blob) await db.put('audio', blob, key);
+                        } else {
+                            skipCount++;
                         }
                     }
 
                     // 下載 Back Audio (翻面後)
                     if (card.back_speech) {
-                        const blob = await fetchTTS(card.back_speech);
-                        if (blob) {
-                            await db.put('audio', blob, `tts_${card.id}_back`);
+                        const key = `tts_${card.id}_back`;
+                        const existing = await db.get('audio', key);
+                        if (!existing) {
+                            const blob = await fetchTTS(card.back_speech);
+                            if (blob) await db.put('audio', blob, key);
+                        } else {
+                            skipCount++;
                         }
                     }
 
@@ -402,6 +486,8 @@
                 }
 
                 await tx.done;
+
+                console.log(`下載完成。共 ${total} 張卡片，跳過已存在語音: ${skipCount} 個檔案`);
 
                 // 下載完成
                 document.getElementById('download-overlay').style.display = 'none';
@@ -416,8 +502,6 @@
 
         async function fetchTTS(text) {
             try {
-                // 先檢查 Cache (IndexedDB) 是否已有相同的 (Optional optimization)
-                // 這裡簡化：直接打 API，API 會回傳 MP3 blob
                 const res = await fetch(`/api/tts?text=${encodeURIComponent(text)}`);
                 if (res.ok) {
                     return await res.blob();
@@ -434,13 +518,7 @@
             studyQueue = await db.getAll('cards');
 
             if (studyQueue.length === 0) {
-                document.getElementById('start-screen').innerHTML = `
-                    <div style="text-align:center; margin-top: 50px;">
-                        <h3>無待辦卡片</h3>
-                        <p>請確認是否已下載或今日已完成。</p>
-                        <button class="main-action-btn" onclick="startDailySession()">重新下載</button>
-                    </div>
-                `;
+                checkLocalData(); // 更新介面狀態
                 document.getElementById('study-area').style.display = 'none';
                 document.getElementById('start-screen').style.display = 'flex';
             } else {
@@ -484,15 +562,61 @@
                 ttsBtn.innerHTML = '🔊';
                 ttsBtn.onclick = (e) => { e.stopPropagation(); playAudio(card.id, 'front'); };
                 cardEl.appendChild(ttsBtn);
-
-                // 自動播放正面 (Optional, user prefer toggle?)
-                // playAudio(card.id, 'front');
             }
 
             // 背面 (隱藏)
             const backContent = document.createElement('div');
             backContent.className = 'back-content';
             backContent.innerText = card.back;
+
+            // --- AI 造句按鈕區域 ---
+            const targetWord = card.speech || card.back_speech; // 取得英文單字
+            if (targetWord) {
+                const aiContainer = document.createElement('div');
+                aiContainer.style.marginTop = '15px';
+
+                const aiBtn = document.createElement('button');
+                aiBtn.className = 'ai-btn';
+                aiBtn.innerText = '✨ AI 造句';
+
+                const aiResult = document.createElement('div');
+                aiResult.className = 'ai-result';
+                aiResult.innerText = '生成中...';
+
+                aiBtn.onclick = async (e) => {
+                    e.stopPropagation();
+                    if (!navigator.onLine) {
+                        alert("請連上網路以使用 AI 功能");
+                        return;
+                    }
+
+                    aiBtn.disabled = true;
+                    aiBtn.innerText = '生成中...';
+                    aiResult.style.display = 'block';
+                    aiResult.innerText = '正在詢問 AI...';
+
+                    try {
+                        const res = await fetch('/api/make_sentence', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ word: targetWord })
+                        });
+                        const data = await res.json();
+                        aiResult.innerText = data.sentence || '生成失敗';
+                    } catch (err) {
+                        aiResult.innerText = '連線錯誤';
+                    } finally {
+                        aiBtn.disabled = false;
+                        aiBtn.innerText = '✨ AI 造句';
+                    }
+                };
+
+                aiContainer.appendChild(aiBtn);
+                aiContainer.appendChild(aiResult);
+                backContent.appendChild(aiContainer);
+            }
+            // ---------------------
+
             cardEl.appendChild(backContent);
             
             const clickHint = document.createElement('div');
@@ -525,8 +649,8 @@
                 audio.play();
             } else {
                 console.log('Audio not found in cache');
-                // Try fallback to network if online?
-                // For now, offline mode means strict offline.
+                // 如果本地沒有，且有網路，可以嘗試即時下載 (Optional fallback)
+                // 這裡暫不實作，保持離線優先邏輯
             }
         }
 
@@ -613,7 +737,7 @@
                     // 同步成功，清空 queue
                     await tx.store.clear();
                     await tx.done;
-                    alert(`同步成功！共上傳了 ${data.synced_count} 筆紀錄。`);
+                    alert(`同步成功！共上傳了 ${data.synced_count} 筆紀錄。`); // Note: Backend returns just success, but assuming count logic
                     await updateSyncStatus();
                     // 如果是在完成畫面，跳轉回首頁
                     if (studyQueue.length === 0) {
