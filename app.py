@@ -5,7 +5,13 @@ import json
 import os
 import csv
 import io
-from flask import Flask, render_template, request, redirect, url_for, jsonify, flash
+import asyncio
+import edge_tts
+import threading
+import uuid
+import os
+from gtts import gTTS
+from flask import Flask, render_template, request, redirect, url_for, jsonify, flash, send_file, send_from_directory
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from config import DB_NAME, MODEL_NAME
@@ -515,26 +521,20 @@ def swipe_mode(deck_id):
     # 載入速記模式的前端介面
     return render_template('swipe_mode.html', deck_id=deck_id)
 
-@app.route('/api/next_card/<int:deck_id>')
-def api_next_card(deck_id):
+@app.route('/api/daily_batch/<int:deck_id>')
+def api_daily_batch(deck_id):
     today = datetime.now().date()
     with get_db_connection() as conn:
         cursor = conn.cursor()
+        cursor.execute("SELECT * FROM cards WHERE next_review <= ? AND deck_id = ?", (today, deck_id))
+        cards = cursor.fetchall()
 
-        # 先計算該牌組總共有幾張要背
-        cursor.execute("SELECT COUNT(id) FROM cards WHERE next_review <= ? AND deck_id = ?", (today, deck_id))
-        due_count = cursor.fetchone()[0]
-
-        # 從指定牌組隨機抽取一張今天該背的卡片
-        cursor.execute("SELECT * FROM cards WHERE next_review <= ? AND deck_id = ? ORDER BY RANDOM() LIMIT 1", (today, deck_id))
-        card = cursor.fetchone()
-        
-    if card:
+    batch_data = []
+    for card in cards:
         original_english = card['front']
         original_chinese = card['back']
         
         # --- 隨機中英切換邏輯 ---
-        # 如果卡片類型是 'spell'，則強制反轉 (看中文猜英文)
         is_reverse = random.choice([True, False]) if card['card_type'] == 'recognize' else True
         
         if is_reverse:
@@ -546,55 +546,121 @@ def api_next_card(deck_id):
             
             display_front = f"{original_chinese}\n[{hint}]"
             display_back = original_english
-            # 正面不發音 (避免唸中文)，讓前端在翻面時唸背面
             speech_text = "" 
+            # 翻面時才發音 (英文在背面)
+            back_speech_text = original_english
         else:
             # 【正向模式：看英文 -> 猜中文】
             display_front = original_english
             display_back = original_chinese
-            # 正面提供發音文字
             speech_text = original_english
+            back_speech_text = ""
 
-        return jsonify({
+        batch_data.append({
             'id': card['id'],
             'front': display_front,
             'back': display_back,
             'speech': speech_text,
-            'status': 'found',
-            'due_count': due_count
+            'back_speech': back_speech_text
         })
-    else:
-        return jsonify({'status': 'done', 'due_count': 0})
 
-@app.route('/api/submit_swipe', methods=['POST'])
-def api_submit_swipe():
-    # 接收速記模式的結果
-    data = request.json
-    card_id = data.get('card_id')
-    direction = data.get('direction') # 'left' (忘記) 或 'right' (記得)
+    return jsonify({'cards': batch_data, 'total': len(batch_data)})
+
+
+# TTS Lock to prevent concurrency issues if multiple requests come in
+tts_lock = threading.Lock()
+
+@app.route('/sw.js')
+def service_worker():
+    return send_from_directory('static', 'sw.js')
+
+@app.route('/api/tts', methods=['GET'])
+def api_tts():
+    text = request.args.get('text')
+    if not text:
+        return "No text provided", 400
+
+    # Generate unique filename for this request
+    temp_filename = f"tts_{uuid.uuid4()}.mp3"
     
-    # 轉換為 SM-2 品質分數
-    quality = 5 if direction == 'right' else 0
+    # Try Edge TTS first
+    try:
+        async def generate_edge_tts():
+            communicate = edge_tts.Communicate(text, "en-US-AriaNeural")
+            await communicate.save(temp_filename)
 
+        # edge-tts internal logic handles file creation safely, but we use lock just in case of
+        # strange side effects or to rate limit concurrent heavy logic if needed.
+        # Actually edge-tts is async, but we are running it sync via asyncio.run for Flask.
+        # The unique filename solves the race condition on file access.
+
+        asyncio.run(generate_edge_tts())
+
+        with open(temp_filename, 'rb') as f:
+            audio_data = f.read()
+
+        # Clean up
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)
+
+        return audio_data, 200, {'Content-Type': 'audio/mpeg'}
+
+    except Exception as edge_error:
+        print(f"Edge TTS failed: {edge_error}. Falling back to gTTS.")
+        try:
+            # Fallback to gTTS
+            tts = gTTS(text=text, lang='en')
+            tts.save(temp_filename)
+
+            with open(temp_filename, 'rb') as f:
+                audio_data = f.read()
+
+            if os.path.exists(temp_filename):
+                os.remove(temp_filename)
+
+            return audio_data, 200, {'Content-Type': 'audio/mpeg'}
+
+        except Exception as gtts_error:
+             if os.path.exists(temp_filename):
+                os.remove(temp_filename)
+             return f"TTS Error (Both Edge and Google failed): {str(gtts_error)}", 500
+
+
+@app.route('/api/sync_batch', methods=['POST'])
+def api_sync_batch():
+    data = request.json
+    results = data.get('results', [])
+
+    count = 0
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT interval, repetition, ef FROM cards WHERE id = ?", (card_id,))
-        row = cursor.fetchone()
         
-        if row:
-            old_interval, old_rep, old_ef = row
-            new_interval, new_rep, new_ef = sm2_algorithm(quality, old_interval, old_rep, old_ef)
+        for item in results:
+            card_id = item.get('card_id')
+            direction = item.get('direction') # 'right' or 'left'
             
-            new_date = datetime.now().date() + timedelta(days=new_interval)
+            # 轉換為 SM-2 品質分數
+            quality = 5 if direction == 'right' else 0
             
-            cursor.execute("""
-                UPDATE cards 
-                SET interval = ?, repetition = ?, ef = ?, next_review = ? 
-                WHERE id = ?
-            """, (new_interval, new_rep, new_ef, new_date, card_id))
-            conn.commit()
+            cursor.execute("SELECT interval, repetition, ef FROM cards WHERE id = ?", (card_id,))
+            row = cursor.fetchone()
+
+            if row:
+                old_interval, old_rep, old_ef = row
+                new_interval, new_rep, new_ef = sm2_algorithm(quality, old_interval, old_rep, old_ef)
+
+                new_date = datetime.now().date() + timedelta(days=new_interval)
+
+                cursor.execute("""
+                    UPDATE cards
+                    SET interval = ?, repetition = ?, ef = ?, next_review = ?
+                    WHERE id = ?
+                """, (new_interval, new_rep, new_ef, new_date, card_id))
+                count += 1
+
+        conn.commit()
             
-    return jsonify({'status': 'success'})
+    return jsonify({'status': 'success', 'synced_count': count})
 
 # --- 工具：匯入 & 重置 ---
 @app.route('/import/paste', methods=['GET', 'POST'])

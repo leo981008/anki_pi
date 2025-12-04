@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>速記模式</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#ffffff">
+    <title>速記模式 (離線版)</title>
     <style>
         body {
             font-family: "Helvetica Neue", Arial, "PingFang TC", "Heiti TC", "Microsoft JhengHei", sans-serif;
@@ -15,6 +17,8 @@
             justify-content: center;
             height: 100vh;
             overflow: hidden;
+            -webkit-user-select: none;
+            user-select: none;
         }
 
         /* 頂部導覽 */
@@ -26,16 +30,34 @@
             padding: 15px;
             box-sizing: border-box;
             z-index: 10;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
         
-        header a {
+        .nav-btn {
             text-decoration: none;
             color: #555;
-            font-size: 1rem;
-            background: rgba(255,255,255,0.8);
+            font-size: 0.9rem;
+            background: rgba(255,255,255,0.9);
             padding: 8px 12px;
             border-radius: 20px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            border: none;
+            cursor: pointer;
+        }
+
+        /* 狀態列 */
+        #status-bar {
+            position: absolute;
+            top: 60px;
+            font-size: 0.8rem;
+            color: #666;
+            background: rgba(255,255,255,0.8);
+            padding: 5px 15px;
+            border-radius: 15px;
+            transition: opacity 0.3s;
+            z-index: 5;
         }
 
         /* 卡片容器 */
@@ -43,7 +65,7 @@
             position: relative;
             width: 90%;
             max-width: 400px;
-            height: 55vh; /* 卡片高度佔螢幕 55% */
+            height: 55vh;
             perspective: 1000px;
         }
 
@@ -62,20 +84,19 @@
             box-sizing: border-box;
             font-size: 2em;
             cursor: pointer;
-            transition: transform 0.3s ease, opacity 0.3s ease, background-color 0.3s;
+            transition: transform 0.3s ease, opacity 0.3s ease;
             position: relative; 
         }
         
-        /* 翻面後的樣式 */
         .flashcard.flipped {
-            background-color: #fffbe6; /* 翻面變微黃色 */
+            background-color: #fffbe6;
         }
 
         .front-text {
             font-weight: 500;
             color: #333;
             line-height: 1.4;
-            white-space: pre-line; /* 讓後端的 \n 換行符號生效 */
+            white-space: pre-line;
         }
 
         .back-content {
@@ -85,7 +106,7 @@
             border-top: 1px solid #eee;
             width: 80%;
             color: #555;
-            font-size: 0.8em; /* 背面字小一點 */
+            font-size: 0.8em;
             font-weight: bold;
         }
 
@@ -126,7 +147,7 @@
         }
         .btn-yes:active { background-color: #e8f5e9; transform: scale(0.95); }
 
-        /* 發音按鈕樣式 */
+        /* TTS 按鈕 */
         .tts-btn {
             background: none;
             border: 1px solid #ddd;
@@ -140,11 +161,9 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: background 0.2s;
         }
         .tts-btn:active { background: #eee; }
 
-        /* 點擊提示文字 */
         .click-hint {
             margin-top: auto; 
             font-size: 0.4em; 
@@ -152,160 +171,465 @@
             margin-bottom: 10px;
         }
 
+        /* 下載覆蓋層 */
+        #download-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.95);
+            z-index: 100;
+            display: none; /* flex when active */
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        #progress-bar-container {
+            width: 80%;
+            height: 10px;
+            background: #eee;
+            border-radius: 5px;
+            margin-top: 20px;
+            overflow: hidden;
+        }
+
+        #progress-bar {
+            width: 0%;
+            height: 100%;
+            background: #007bff;
+            transition: width 0.2s;
+        }
+
+        #sync-btn {
+            background-color: #007bff;
+            color: white;
+            display: none; /* hidden if nothing to sync */
+        }
+
+        /* 開始畫面 */
+        #start-screen {
+            display: flex; /* or none */
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .main-action-btn {
+            padding: 15px 30px;
+            font-size: 1.1rem;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 50px;
+            box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
+            cursor: pointer;
+        }
+
+        .offline-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.7em;
+            margin-left: 5px;
+            background: #eee;
+            color: #666;
+        }
+
+        .offline-badge.online { background: #e8f5e9; color: #28a745; }
+        .offline-badge.offline { background: #ffebeb; color: #ff4d4d; }
+
     </style>
 </head>
 <body>
 
     <header>
-        <a href="/">↩ 回首頁</a>
-        <span id="due-count" style="font-size: 1rem; color: #333; background: rgba(255,255,255,0.8); padding: 8px 12px; border-radius: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);"></span>
+        <a href="/" class="nav-btn">↩ 回首頁</a>
+        <div style="display: flex; gap: 10px;">
+             <button id="sync-btn" class="nav-btn" onclick="syncProgress()">☁ 同步 (<span id="sync-count">0</span>)</button>
+             <div id="conn-status" class="offline-badge">檢查中...</div>
+        </div>
     </header>
 
-    <div id="card-container">
-        <div style="text-align:center; color:#888; padding-top: 50%;">
-            <p>載入中...</p>
+    <div id="status-bar">準備就緒</div>
+
+    <!-- 下載進度畫面 -->
+    <div id="download-overlay">
+        <h2>正在下載今日課程</h2>
+        <p id="download-status">準備中...</p>
+        <div id="progress-bar-container">
+            <div id="progress-bar"></div>
         </div>
     </div>
 
-    <div class="controls">
-        <button class="btn-action btn-no" onclick="submitAnswer('left')">
-            ✕ 忘記
-        </button>
-        <button class="btn-action btn-yes" onclick="submitAnswer('right')">
-            ✓ 記得
-        </button>
+    <!-- 初始/空狀態畫面 -->
+    <div id="start-screen">
+        <div style="text-align:center; color:#666; margin-bottom: 20px;">
+            <h3>今日學習</h3>
+            <p>請點擊下方按鈕開始下載今日單字</p>
+        </div>
+        <button class="main-action-btn" onclick="startDailySession()">⬇ 下載今日課程</button>
+        <div style="margin-top:20px; font-size: 0.9em; color:#888;">
+            <p>支援離線使用：<br>下載後即使斷網也可以繼續學習</p>
+        </div>
     </div>
 
+    <!-- 學習卡片區域 (隱藏直到開始) -->
+    <div id="study-area" style="display: none; width: 100%; display: flex; flex-direction: column; align-items: center;">
+        <div id="card-container">
+            <!-- 卡片會動態插入這裡 -->
+        </div>
+
+        <div class="controls">
+            <button class="btn-action btn-no" onclick="submitAnswer('left')">✕ 忘記</button>
+            <button class="btn-action btn-yes" onclick="submitAnswer('right')">✓ 記得</button>
+        </div>
+    </div>
+
+    <!-- IndexedDB Library (Simple wrap) -->
+    <script src="/static/js/idb.js"></script>
+
     <script>
-        let currentCardId = null;
-        const container = document.getElementById('card-container');
-        const dueCountElement = document.getElementById('due-count');
         const deckId = {{ deck_id }};
+        let dbPromise;
+        let currentCard = null;
+        let studyQueue = [];
+        let syncQueue = [];
 
-        // 初始化：載入第一張卡片
-        loadNextCard();
-
-        function loadNextCard() {
-            // 呼叫後端 API
-            fetch(`/api/next_card/${deckId}`)
-                .then(res => res.json())
-                .then(data => {
-                    // 更新剩餘數量
-                    if (data.due_count !== undefined) {
-                        dueCountElement.innerHTML = `還剩 <b>${data.due_count}</b> 張`;
+        // 1. 初始化 IndexedDB
+        async function initDB() {
+            dbPromise = idb.openDB('anki-pi-db', 1, {
+                upgrade(db) {
+                    // Store cards: keyPath id
+                    if (!db.objectStoreNames.contains('cards')) {
+                        db.createObjectStore('cards', { keyPath: 'id' });
                     }
-
-                    if (data.status === 'done') {
-                        // 如果沒卡片了，顯示完成畫面
-                        container.innerHTML = `
-                            <div style="background:white; border-radius:20px; padding:30px; text-align:center; box-shadow:0 10px 25px rgba(0,0,0,0.1); margin-top: 30%;">
-                                <h3 style="color:#28a745; font-size: 1.5em;">恭喜完成！</h3>
-                                <p style="color:#666;">今天沒有其他單字了。</p>
-                                <a href="/" style="display:inline-block; margin-top:20px; color:#007bff; text-decoration:none; border:1px solid #007bff; padding:10px 20px; border-radius:5px;">回首頁</a>
-                            </div>
-                        `;
-                        document.querySelector('.controls').style.display = 'none';
-                    } else {
-                        currentCardId = data.id;
-                        // 注意：這裡接收 backend 回傳的 speech 欄位
-                        renderCard(data.front, data.back, data.speech);
+                    // Store audio: keyPath id (or text hash), but let's use card_id + type ('front'/'back')
+                    if (!db.objectStoreNames.contains('audio')) {
+                        db.createObjectStore('audio');
                     }
-                })
-                .catch(err => {
-                    console.error(err);
-                    container.innerHTML = '<p style="text-align:center; color:red;">連線錯誤，請重新整理</p>';
-                });
+                    // Store sync queue: autoIncrement
+                    if (!db.objectStoreNames.contains('sync_queue')) {
+                        db.createObjectStore('sync_queue', { keyPath: 'id', autoIncrement: true });
+                    }
+                },
+            });
+            await updateSyncStatus();
         }
 
-        function renderCard(front, back, speechText) {
-            container.innerHTML = '';
-            
-            const card = document.createElement('div');
-            card.className = 'flashcard';
+        // 2. 註冊 Service Worker
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js')
+                .then(() => console.log('SW Registered'))
+                .catch(err => console.error('SW Fail', err));
+        }
 
-            const frontText = document.createElement('div');
-            frontText.className = 'front-text';
-            frontText.innerText = front; // 使用 innerText
-            card.appendChild(frontText);
-            
-            // 準備發音按鈕 HTML (如果有 speechText 才顯示)
-            if (speechText && speechText.length > 0) {
-                const safeSpeech = speechText.replace(/'/g, "\\'");
-                const ttsButton = document.createElement('button');
-                ttsButton.className = 'tts-btn';
-                ttsButton.innerHTML = '🔊';
-                ttsButton.onclick = function(event) {
-                    event.stopPropagation();
-                    speak(safeSpeech);
-                };
-                card.appendChild(ttsButton);
+        // 3. 網路狀態監聽
+        function updateOnlineStatus() {
+            const el = document.getElementById('conn-status');
+            if (navigator.onLine) {
+                el.innerText = "連線中";
+                el.className = "offline-badge online";
+            } else {
+                el.innerText = "離線";
+                el.className = "offline-badge offline";
+            }
+        }
+        window.addEventListener('online', updateOnlineStatus);
+        window.addEventListener('offline', updateOnlineStatus);
+        updateOnlineStatus();
+
+        // 4. 開始今日課程 (下載流程)
+        async function startDailySession() {
+            if (!navigator.onLine) {
+                // 如果離線，直接嘗試從 DB 讀取
+                alert("目前為離線狀態，嘗試載入已下載的卡片...");
+                loadFromLocal();
+                return;
             }
 
+            document.getElementById('download-overlay').style.display = 'flex';
+            const statusText = document.getElementById('download-status');
+            const progressBar = document.getElementById('progress-bar');
+
+            try {
+                // A. 抓取卡片清單
+                statusText.innerText = "正在取得卡片清單...";
+                const res = await fetch(`/api/daily_batch/${deckId}`);
+                const data = await res.json();
+
+                if (data.total === 0) {
+                    alert("今天沒有需要複習的卡片！");
+                    document.getElementById('download-overlay').style.display = 'none';
+                    return;
+                }
+
+                const db = await dbPromise;
+                const tx = db.transaction(['cards', 'audio'], 'readwrite');
+
+                // 清空舊卡片 (Optional: 若要保留可不做，但這裡是 Daily Session)
+                await tx.objectStore('cards').clear();
+                // Audio 不一定要清空，可以當快取
+
+                let downloadedCount = 0;
+                const total = data.total;
+
+                // B. 逐一下載語音
+                // 我們不使用 Promise.all 全部並發，以免塞爆 Server/Client，改用批次或序列
+                for (const card of data.cards) {
+                    statusText.innerText = `下載語音 (${downloadedCount + 1}/${total}): ${card.front.replace(/\n/g, ' ')}`;
+
+                    // 下載 Front Audio
+                    if (card.speech) {
+                        const blob = await fetchTTS(card.speech);
+                        if (blob) {
+                            await db.put('audio', blob, `tts_${card.id}_front`);
+                        }
+                    }
+
+                    // 下載 Back Audio (翻面後)
+                    if (card.back_speech) {
+                        const blob = await fetchTTS(card.back_speech);
+                        if (blob) {
+                            await db.put('audio', blob, `tts_${card.id}_back`);
+                        }
+                    }
+
+                    // 存入卡片資料
+                    await db.put('cards', card);
+
+                    downloadedCount++;
+                    progressBar.style.width = `${(downloadedCount / total) * 100}%`;
+                }
+
+                await tx.done;
+
+                // 下載完成
+                document.getElementById('download-overlay').style.display = 'none';
+                loadFromLocal();
+
+            } catch (err) {
+                console.error(err);
+                alert("下載失敗：" + err.message);
+                document.getElementById('download-overlay').style.display = 'none';
+            }
+        }
+
+        async function fetchTTS(text) {
+            try {
+                // 先檢查 Cache (IndexedDB) 是否已有相同的 (Optional optimization)
+                // 這裡簡化：直接打 API，API 會回傳 MP3 blob
+                const res = await fetch(`/api/tts?text=${encodeURIComponent(text)}`);
+                if (res.ok) {
+                    return await res.blob();
+                }
+            } catch (e) {
+                console.error("TTS fetch fail", e);
+            }
+            return null;
+        }
+
+        // 5. 從 Local DB 載入學習
+        async function loadFromLocal() {
+            const db = await dbPromise;
+            studyQueue = await db.getAll('cards');
+
+            if (studyQueue.length === 0) {
+                document.getElementById('start-screen').innerHTML = `
+                    <div style="text-align:center; margin-top: 50px;">
+                        <h3>無待辦卡片</h3>
+                        <p>請確認是否已下載或今日已完成。</p>
+                        <button class="main-action-btn" onclick="startDailySession()">重新下載</button>
+                    </div>
+                `;
+                document.getElementById('study-area').style.display = 'none';
+                document.getElementById('start-screen').style.display = 'flex';
+            } else {
+                // 洗牌
+                studyQueue.sort(() => Math.random() - 0.5);
+
+                document.getElementById('start-screen').style.display = 'none';
+                document.getElementById('study-area').style.display = 'flex'; // 這裡改用 flex
+                document.getElementById('status-bar').innerText = `剩餘: ${studyQueue.length}`;
+
+                loadNextCard();
+            }
+        }
+
+        function loadNextCard() {
+            if (studyQueue.length === 0) {
+                finishSession();
+                return;
+            }
+            currentCard = studyQueue[0];
+            renderCard(currentCard);
+        }
+
+        async function renderCard(card) {
+            const container = document.getElementById('card-container');
+            container.innerHTML = '';
+            
+            const cardEl = document.createElement('div');
+            cardEl.className = 'flashcard';
+
+            // 正面
+            const frontText = document.createElement('div');
+            frontText.className = 'front-text';
+            frontText.innerText = card.front;
+            cardEl.appendChild(frontText);
+
+            // 正面發音按鈕 (若有)
+            if (card.speech) {
+                const ttsBtn = document.createElement('button');
+                ttsBtn.className = 'tts-btn';
+                ttsBtn.innerHTML = '🔊';
+                ttsBtn.onclick = (e) => { e.stopPropagation(); playAudio(card.id, 'front'); };
+                cardEl.appendChild(ttsBtn);
+
+                // 自動播放正面 (Optional, user prefer toggle?)
+                // playAudio(card.id, 'front');
+            }
+
+            // 背面 (隱藏)
             const backContent = document.createElement('div');
             backContent.className = 'back-content';
-            backContent.innerText = back; // 使用 innerText
-            card.appendChild(backContent);
+            backContent.innerText = card.back;
+            cardEl.appendChild(backContent);
             
             const clickHint = document.createElement('div');
             clickHint.className = 'click-hint';
             clickHint.innerText = '(點擊翻面)';
-            card.appendChild(clickHint);
+            cardEl.appendChild(clickHint);
 
-            // 綁定點擊翻面事件
-            card.onclick = function() {
-                // 檢查是否已經翻面
+            cardEl.onclick = () => {
                 if (backContent.style.display !== 'block') {
-                    // 執行翻面
                     backContent.style.display = 'block';
-                    card.classList.add('flipped'); // 改變背景顏色
-                    clickHint.style.display = 'none'; // 隱藏提示
+                    cardEl.classList.add('flipped');
+                    clickHint.style.display = 'none';
 
-                    // 智慧發音邏輯：
-                    // 如果正面沒有發音 (speechText 為空，代表這題是給中文猜英文)
-                    // 則翻面時，自動唸出背面的英文答案
-                    if (!speechText) {
-                        speak(back); 
+                    // 翻面自動播放背面語音 (若有)
+                    if (card.back_speech) {
+                        playAudio(card.id, 'back');
                     }
                 }
             };
 
-            container.appendChild(card);
+            container.appendChild(cardEl);
         }
 
-        function submitAnswer(direction) {
-            if (currentCardId === null) return;
+        async function playAudio(cardId, type) {
+            const db = await dbPromise;
+            const blob = await db.get('audio', `tts_${cardId}_${type}`);
+            if (blob) {
+                const url = URL.createObjectURL(blob);
+                const audio = new Audio(url);
+                audio.play();
+            } else {
+                console.log('Audio not found in cache');
+                // Try fallback to network if online?
+                // For now, offline mode means strict offline.
+            }
+        }
 
-            const card = document.querySelector('.flashcard');
-            
-            // 動畫：卡片向上淡出
-            if(card) {
-                card.style.transform = 'translateY(-30px) scale(0.95)';
-                card.style.opacity = '0';
+        async function submitAnswer(direction) {
+            if (!currentCard) return;
+
+            const cardEl = document.querySelector('.flashcard');
+            if(cardEl) {
+                cardEl.style.transform = 'translateY(-30px) scale(0.95)';
+                cardEl.style.opacity = '0';
             }
 
-            // 提交結果給後端
-            fetch('/api/submit_swipe', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ card_id: currentCardId, direction: direction })
-            }).then(() => {
-                // 給一點時間跑動畫，再載入下一張
-                setTimeout(() => {
-                    loadNextCard();
-                }, 200);
+            // 1. 紀錄結果到 IndexedDB
+            const db = await dbPromise;
+            await db.put('sync_queue', {
+                card_id: currentCard.id,
+                direction: direction,
+                timestamp: Date.now()
             });
+
+            // 2. 從待辦清單移除
+            studyQueue.shift(); // Remove first
+            await db.delete('cards', currentCard.id); // Remove from DB
+
+            await updateSyncStatus();
+
+            setTimeout(() => {
+                document.getElementById('status-bar').innerText = `剩餘: ${studyQueue.length}`;
+                loadNextCard();
+            }, 200);
         }
 
-        // 發音功能 (使用瀏覽器內建 Web Speech API)
-        function speak(text) {
-            if ('speechSynthesis' in window) {
-                window.speechSynthesis.cancel(); // 停止上一句，避免重疊
-                const u = new SpeechSynthesisUtterance(text);
-                u.lang = 'en-US'; // 設定語言為美式英文
-                u.rate = 0.9;     // 語速稍慢
-                window.speechSynthesis.speak(u);
+        function finishSession() {
+            const container = document.getElementById('card-container');
+            container.innerHTML = `
+                <div style="background:white; border-radius:20px; padding:30px; text-align:center; box-shadow:0 10px 25px rgba(0,0,0,0.1); margin-top: 30%;">
+                    <h3 style="color:#28a745; font-size: 1.5em;">恭喜完成！</h3>
+                    <p style="color:#666;">所有下載的卡片都已複習完畢。</p>
+                    <button class="main-action-btn" onclick="syncProgress()">立即同步進度</button>
+                    <br><br>
+                    <a href="/" style="color:#007bff;">回首頁</a>
+                </div>
+            `;
+            document.querySelector('.controls').style.display = 'none';
+        }
+
+        async function updateSyncStatus() {
+            const db = await dbPromise;
+            const count = await db.count('sync_queue');
+            document.getElementById('sync-count').innerText = count;
+
+            const btn = document.getElementById('sync-btn');
+            if (count > 0) {
+                btn.style.display = 'block';
+            } else {
+                btn.style.display = 'none';
             }
         }
+
+        async function syncProgress() {
+            if (!navigator.onLine) {
+                alert("目前無法連線，請確認網路後再試。");
+                return;
+            }
+
+            const db = await dbPromise;
+            const tx = db.transaction('sync_queue', 'readwrite');
+            const items = await tx.store.getAll();
+
+            if (items.length === 0) {
+                alert("沒有需要同步的資料。");
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/sync_batch', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ results: items })
+                });
+
+                const data = await res.json();
+                if (data.status === 'success') {
+                    // 同步成功，清空 queue
+                    await tx.store.clear();
+                    await tx.done;
+                    alert(`同步成功！共上傳了 ${data.synced_count} 筆紀錄。`);
+                    await updateSyncStatus();
+                    // 如果是在完成畫面，跳轉回首頁
+                    if (studyQueue.length === 0) {
+                        window.location.href = '/';
+                    }
+                } else {
+                    alert("同步發生錯誤：" + JSON.stringify(data));
+                }
+            } catch (err) {
+                alert("同步失敗：" + err.message);
+            }
+        }
+
+        // Run Init
+        initDB();
+
     </script>
 </body>
 </html>
