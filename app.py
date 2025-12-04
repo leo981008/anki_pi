@@ -660,13 +660,23 @@ def api_sync_batch():
 
         conn.commit()
             
-    return jsonify({'status': 'success', 'synced_count': count})
+    return jsonify({'status': 'success'})
+
+@app.route('/api/make_sentence', methods=['POST'])
+def api_make_sentence():
+    word = request.json.get('word')
+    if not word:
+        return jsonify({'error': 'No word provided'}), 400
+    
+    prompt = f"請用 '{word}' 這個單字造一個生活化的英文句子，並附上繁體中文翻譯。"
+    sentence = ask_ollama(prompt)
+    
+    return jsonify({'sentence': sentence})
 
 # --- 工具：匯入 & 重置 ---
-@app.route('/import/paste', methods=['GET', 'POST'])
-def import_paste():
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
+@app.route('/import', methods=['POST'])
+def import_cards():
+    deck_id = request.form.get('deck_id')
 
         if request.method == 'POST':
             csv_data = request.form.get('csv_data')
