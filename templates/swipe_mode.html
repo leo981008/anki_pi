@@ -710,9 +710,9 @@
             }
         }
 
-        async function syncProgress() {
+        async function syncProgress(silent = false) {
             if (!navigator.onLine) {
-                alert("目前無法連線，請確認網路後再試。");
+                if (!silent) alert("目前無法連線，請確認網路後再試。");
                 return;
             }
 
@@ -721,7 +721,7 @@
             const items = await tx.store.getAll();
 
             if (items.length === 0) {
-                alert("沒有需要同步的資料。");
+                if (!silent) alert("沒有需要同步的資料。");
                 return;
             }
 
@@ -737,22 +737,31 @@
                     // 同步成功，清空 queue
                     await tx.store.clear();
                     await tx.done;
-                    alert(`同步成功！共上傳了 ${data.synced_count} 筆紀錄。`); // Note: Backend returns just success, but assuming count logic
+                    if (!silent) alert(`同步成功！共上傳了 ${data.synced_count} 筆紀錄。`); // Note: Backend returns just success, but assuming count logic
                     await updateSyncStatus();
                     // 如果是在完成畫面，跳轉回首頁
-                    if (studyQueue.length === 0) {
+                    if (!silent && studyQueue.length === 0) {
                         window.location.href = '/';
                     }
                 } else {
-                    alert("同步發生錯誤：" + JSON.stringify(data));
+                    if (!silent) alert("同步發生錯誤：" + JSON.stringify(data));
                 }
             } catch (err) {
-                alert("同步失敗：" + err.message);
+                if (!silent) alert("同步失敗：" + err.message);
             }
         }
 
         // Run Init
-        initDB();
+        initDB().then(async () => {
+            if (navigator.onLine) {
+                // 如果有網路，嘗試自動同步並更新
+                await syncProgress(true); // Silent sync
+                startDailySession(true); // Force update
+            } else {
+                // 離線則檢查本地資料
+                checkLocalData();
+            }
+        });
 
     </script>
 </body>
