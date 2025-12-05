@@ -14,7 +14,7 @@ from gtts import gTTS
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash, send_file, send_from_directory
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from config import DB_NAME, MODEL_NAME
+from config import DB_NAME, MODEL_NAME, OLLAMA_API_URL
 
 load_dotenv() # 讀取 .env 檔案
 
