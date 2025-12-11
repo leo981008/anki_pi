@@ -678,32 +678,70 @@ def api_sync_batch():
     data = request.json
     results = data.get('results', [])
 
-    count = 0
+    if not results:
+        return jsonify({'status': 'success'})
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
+        # 1. Collect all involved card_ids
+        card_ids = set(item.get('card_id') for item in results if item.get('card_id') is not None)
+
+        if not card_ids:
+            return jsonify({'status': 'success'})
+
+        # 2. Bulk Fetch current status
+        # Optimization: Query all relevant cards at once to avoid N+1 query problem
+        placeholders = ','.join('?' for _ in card_ids)
+        query = f"SELECT id, interval, repetition, ef FROM cards WHERE id IN ({placeholders})"
+        cursor.execute(query, list(card_ids))
+        rows = cursor.fetchall()
+
+        # Create local state cache: card_id -> {state dict}
+        card_states = {
+            row['id']: {
+                'interval': row['interval'],
+                'repetition': row['repetition'],
+                'ef': row['ef']
+            } for row in rows
+        }
+
+        updates_map = {} # card_id -> (new_interval, new_rep, new_ef, new_date, card_id)
+        today = datetime.now().date()
+
+        # 3. In-memory Processing: Calculate state changes sequentially
         for item in results:
             card_id = item.get('card_id')
             direction = item.get('direction') # 'right' or 'left'
             
-            # 轉換為 SM-2 品質分數
-            quality = 5 if direction == 'right' else 0
-            
-            cursor.execute("SELECT interval, repetition, ef FROM cards WHERE id = ?", (card_id,))
-            row = cursor.fetchone()
+            if card_id in card_states:
+                # Convert to SM-2 quality score
+                quality = 5 if direction == 'right' else 0
 
-            if row:
-                old_interval, old_rep, old_ef = row
-                new_interval, new_rep, new_ef = sm2_algorithm(quality, old_interval, old_rep, old_ef)
+                state = card_states[card_id]
+                new_interval, new_rep, new_ef = sm2_algorithm(
+                    quality, state['interval'], state['repetition'], state['ef']
+                )
 
-                new_date = datetime.now().date() + timedelta(days=new_interval)
+                # Update local cache so if the same card appears again in this batch,
+                # it uses the updated state for the next calculation.
+                state['interval'] = new_interval
+                state['repetition'] = new_rep
+                state['ef'] = new_ef
 
-                cursor.execute("""
-                    UPDATE cards
-                    SET interval = ?, repetition = ?, ef = ?, next_review = ?
-                    WHERE id = ?
-                """, (new_interval, new_rep, new_ef, new_date, card_id))
-                count += 1
+                new_date = today + timedelta(days=new_interval)
+
+                # Record the latest update values (overwriting previous ones for the same card in this batch)
+                updates_map[card_id] = (new_interval, new_rep, new_ef, new_date, card_id)
+
+        # 4. Bulk Update
+        # Optimization: Use executemany to commit all changes in one go
+        if updates_map:
+            cursor.executemany("""
+                UPDATE cards
+                SET interval = ?, repetition = ?, ef = ?, next_review = ?
+                WHERE id = ?
+            """, list(updates_map.values()))
 
         conn.commit()
             
