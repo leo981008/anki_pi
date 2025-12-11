@@ -627,6 +627,10 @@ def api_tts():
     if not text:
         return "No text provided", 400
 
+    # Security: Limit text length to prevent DoS/Resource Exhaustion
+    if len(text) > 500:
+        return "Text too long (max 500 characters)", 400
+
     # Generate unique filename for this request
     temp_filename = f"tts_{uuid.uuid4()}.mp3"
     
@@ -753,6 +757,10 @@ def api_make_sentence():
     if not word:
         return jsonify({'error': 'No word provided'}), 400
     
+    # Security: Limit word length
+    if len(word) > 100:
+        return jsonify({'error': 'Word too long (max 100 characters)'}), 400
+
     prompt = f"請用 '{word}' 這個單字造一個生活化的英文句子，並附上繁體中文翻譯。"
     sentence = ask_ollama(prompt)
     
