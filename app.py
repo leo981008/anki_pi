@@ -305,17 +305,46 @@ def manage_decks():
             elif action == 'delete_folder':
                 folder_id = request.form.get('folder_id')
                 if folder_id:
-                    # ON DELETE CASCADE will handle deck_folders entries
-                    cursor.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
-                    flash("已成功刪除資料夾。", "success")
+                    try:
+                        # Manually delete associations first (safe even without ON DELETE CASCADE)
+                        cursor.execute("DELETE FROM deck_folders WHERE folder_id = ?", (folder_id,))
+                        cursor.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
+                        conn.commit()
+                        flash("已成功刪除資料夾。", "success")
+                    except Exception as e:
+                        conn.rollback()
+                        print(f"Delete folder error: {e}")
+                        flash("刪除資料夾失敗，請稍後再試。", "error")
 
             elif action == 'delete_deck':
                 deck_id = request.form.get('deck_id')
                 if deck_id:
-                    # ON DELETE CASCADE will handle cards and deck_folders entries
-                    cursor.execute("DELETE FROM decks WHERE id = ?", (deck_id,))
-                    flash("已成功刪除牌組及所有相關內容。", "success")
+                    try:
+                        # Manually delete associations first (safe even without ON DELETE CASCADE)
+                        cursor.execute("DELETE FROM deck_folders WHERE deck_id = ?", (deck_id,))
+                        cursor.execute("DELETE FROM cards WHERE deck_id = ?", (deck_id,))
+                        cursor.execute("DELETE FROM decks WHERE id = ?", (deck_id,))
+                        conn.commit()
+                        flash("已成功刪除牌組及所有相關內容。", "success")
+                    except Exception as e:
+                        conn.rollback()
+                        print(f"Delete deck error: {e}")
+                        flash("刪除牌組失敗，請稍後再試。", "error")
             
+            # Note: conn.commit() is now handled inside the actions above for deletes,
+            # but for other actions (add/edit) it might still rely on this or they need to commit themselves.
+            # Looking at lines 205-298, the other actions don't have commit.
+            # However, calling commit() again on an empty transaction (if already committed) is harmless.
+            # And if we rolled back, the transaction is ended.
+            # But the 'conn' object is still open.
+            # To be safe and consistent with other actions that fall through:
+            # We should probably REMOVE the commit inside the try block if we keep the one at the end,
+            # OR make sure the flow is correct.
+            # The pattern in this function was "do work, then commit at end".
+            # The try/except block breaks this because we need rollback.
+            # If we commit inside try, the final commit is redundant but fine.
+            # If we rollback inside except, the final commit does nothing (no active transaction).
+            # So the current state is acceptable.
             conn.commit()
             return redirect(url_for('manage_decks'))
 
