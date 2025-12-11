@@ -325,8 +325,8 @@
         </div>
 
         <div class="controls">
-            <button class="btn-action btn-no" onclick="submitAnswer('left')">✕ 忘記</button>
-            <button class="btn-action btn-yes" onclick="submitAnswer('right')">✓ 記得</button>
+            <button class="btn-action btn-no" onclick="submitAnswer('left')" aria-label="Forget (Left Arrow)">✕ 忘記 (←)</button>
+            <button class="btn-action btn-yes" onclick="submitAnswer('right')" aria-label="Remember (Right Arrow)">✓ 記得 (→)</button>
         </div>
     </div>
 
@@ -549,6 +549,8 @@
             
             const cardEl = document.createElement('div');
             cardEl.className = 'flashcard';
+            cardEl.setAttribute('tabindex', '0');
+            cardEl.setAttribute('role', 'button');
 
             // 正面
             const frontText = document.createElement('div');
@@ -628,21 +630,49 @@
             clickHint.innerText = '(點擊翻面)';
             cardEl.appendChild(clickHint);
 
-            cardEl.onclick = () => {
-                if (backContent.style.display !== 'block') {
-                    backContent.style.display = 'block';
-                    cardEl.classList.add('flipped');
-                    clickHint.style.display = 'none';
-
-                    // 翻面自動播放背面語音 (若有)
-                    if (card.back_speech) {
-                        playAudio(card.id, 'back');
-                    }
-                }
-            };
+            cardEl.onclick = flipCurrentCard;
 
             container.appendChild(cardEl);
         }
+
+        function flipCurrentCard() {
+            const cardEl = document.querySelector('.flashcard');
+            if (!cardEl) return;
+            const backContent = cardEl.querySelector('.back-content');
+            const clickHint = cardEl.querySelector('.click-hint');
+
+            if (backContent.style.display !== 'block') {
+                backContent.style.display = 'block';
+                cardEl.classList.add('flipped');
+                if (clickHint) clickHint.style.display = 'none';
+
+                // 翻面自動播放背面語音 (若有)
+                if (currentCard && currentCard.back_speech) {
+                    playAudio(currentCard.id, 'back');
+                }
+            }
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (document.getElementById('study-area').style.display === 'none') return;
+
+            switch(e.code) {
+                case 'Space':
+                case 'Enter':
+                    e.preventDefault();
+                    flipCurrentCard();
+                    break;
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    submitAnswer('left');
+                    break;
+                case 'ArrowRight':
+                    e.preventDefault();
+                    submitAnswer('right');
+                    break;
+            }
+        });
 
         async function playAudio(cardId, type) {
             const db = await dbPromise;
