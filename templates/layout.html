@@ -335,7 +335,27 @@
         })();
 
         // Speech synthesis
-        function speakText(text) {
+        async function speakText(text) {
+            try {
+                // 使用後端 API 進行 TTS (支援 Edge TTS)
+                const res = await fetch(`/api/tts?text=${encodeURIComponent(text)}`);
+                if (res.ok) {
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const audio = new Audio(url);
+                    audio.play();
+                } else {
+                    console.error("TTS API Error:", await res.text());
+                    // Fallback to browser TTS if backend fails
+                    fallbackBrowserTTS(text);
+                }
+            } catch (err) {
+                console.error("TTS Network Error:", err);
+                fallbackBrowserTTS(text);
+            }
+        }
+
+        function fallbackBrowserTTS(text) {
             if ('speechSynthesis' in window) {
                 window.speechSynthesis.cancel();
                 const u = new SpeechSynthesisUtterance(text);
@@ -344,7 +364,6 @@
                 window.speechSynthesis.speak(u);
             }
         }
-        
     </script>
 </body>
 </html>

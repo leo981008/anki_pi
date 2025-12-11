@@ -20,8 +20,20 @@
             <div id="ans" style="display:none; width: 100%; text-align: center;">
                 <hr style="margin: 20px auto; width: 80%; border-color: var(--border-color);">
                 
-                <p style="font-size: 1.8rem; color: var(--primary-color); margin-bottom: 2rem; font-weight: 500;">{{ card.back }}</p>
+                <div style="margin-bottom: 2rem;">
+                    <p id="card-back-text" style="font-size: 1.8rem; color: var(--primary-color); font-weight: 500; margin: 0;">{{ card.back }}</p>
+                    <button onclick="speakText(document.getElementById('card-back-text').innerText)" class="btn btn-gray" style="border-radius: 50%; width: 45px; height: 45px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 1.2rem; margin-top: 0.5rem;">
+                        🔊
+                    </button>
+                </div>
                 
+                {% if card.english_word %}
+                <div id="ai-container" style="margin-bottom: 2rem;">
+                    <button id="ai-btn" class="btn btn-special" data-word="{{ card.english_word }}" style="border-radius: 20px; font-size: 0.9rem;" onclick="makeAiSentence(this.dataset.word)">✨ AI 造句</button>
+                    <div id="ai-result" style="margin-top: 10px; padding: 10px; background: var(--success-bg); border-radius: 10px; color: var(--success-color); text-align: left; display: none; white-space: pre-wrap;"></div>
+                </div>
+                {% endif %}
+
                 <p style="margin-bottom: 1rem; color: #888;">你對這個單字的印象如何？</p>
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px;">
                     {% if deck_id %}
@@ -42,6 +54,37 @@
                 顯示答案
             </button>
         </div>
+
+        <script>
+            async function makeAiSentence(word) {
+                const aiBtn = document.getElementById('ai-btn');
+                const aiResult = document.getElementById('ai-result');
+
+                aiBtn.disabled = true;
+                aiBtn.innerText = '生成中...';
+                aiResult.style.display = 'block';
+                aiResult.innerText = '正在詢問 AI...';
+
+                try {
+                    const res = await fetch('/api/make_sentence', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': csrfToken
+                        },
+                        body: JSON.stringify({ word: word })
+                    });
+                    const data = await res.json();
+                    aiResult.innerText = data.sentence || '生成失敗';
+                } catch (err) {
+                    aiResult.innerText = '連線錯誤';
+                    console.error(err);
+                } finally {
+                    aiBtn.disabled = false;
+                    aiBtn.innerText = '✨ AI 造句';
+                }
+            }
+        </script>
     {% else %}
         <div class="card text-center">
             <h3 style="color: var(--green-color);">🎉 恭喜！</h3>

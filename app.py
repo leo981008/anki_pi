@@ -449,6 +449,10 @@ def study(deck_id):
     
     if card:
         card_data = dict(card)
+        # 保存原始英文單字供 AI 造句使用 (假設 Front 是英文)
+        english_word = card_data['front']
+        card_data['english_word'] = english_word
+
         is_reverse = random.choice([True, False]) if card_data['card_type'] == 'recognize' else True
         
         if is_reverse:
@@ -491,6 +495,10 @@ def study_folder(folder_id):
 
     if card:
         card_data = dict(card)
+        # 保存原始英文單字供 AI 造句使用 (假設 Front 是英文)
+        english_word = card_data['front']
+        card_data['english_word'] = english_word
+
         is_reverse = random.choice([True, False]) if card_data['card_type'] == 'recognize' else True
         
         if is_reverse:
@@ -561,65 +569,8 @@ def ai_check():
     feedback = ask_ollama(prompt)
     return render_template('ai_result.html', question=question, answer=user_answer, feedback=feedback)
 
-# --- 速記/滑動模式 (API 支援) ---
-
-@app.route('/swipe_mode/<int:deck_id>')
-def swipe_mode(deck_id):
-    # 載入速記模式的前端介面
-    return render_template('swipe_mode.html', deck_id=deck_id)
-
-@app.route('/api/daily_batch/<int:deck_id>')
-def api_daily_batch(deck_id):
-    today = datetime.now().date()
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM cards WHERE next_review <= ? AND deck_id = ?", (today, deck_id))
-        cards = cursor.fetchall()
-
-    batch_data = []
-    for card in cards:
-        original_english = card['front']
-        original_chinese = card['back']
-        
-        # --- 隨機中英切換邏輯 ---
-        is_reverse = random.choice([True, False]) if card['card_type'] == 'recognize' else True
-        
-        if is_reverse:
-            # 【反向模式：看中文 -> 猜英文】
-            if len(original_english) > 2:
-                hint = f"{original_english[0]}...{original_english[-1]}"
-            else:
-                hint = f"{original_english[0]}..."
-            
-            display_front = f"{original_chinese}\n[{hint}]"
-            display_back = original_english
-            speech_text = "" 
-            # 翻面時才發音 (英文在背面)
-            back_speech_text = original_english
-        else:
-            # 【正向模式：看英文 -> 猜中文】
-            display_front = original_english
-            display_back = original_chinese
-            speech_text = original_english
-            back_speech_text = ""
-
-        batch_data.append({
-            'id': card['id'],
-            'front': display_front,
-            'back': display_back,
-            'speech': speech_text,
-            'back_speech': back_speech_text
-        })
-
-    return jsonify({'cards': batch_data, 'total': len(batch_data)})
-
-
 # TTS Lock to prevent concurrency issues if multiple requests come in
 tts_lock = threading.Lock()
-
-@app.route('/sw.js')
-def service_worker():
-    return send_from_directory('static', 'sw.js')
 
 @app.route('/api/tts', methods=['GET'])
 def api_tts():
@@ -676,80 +627,6 @@ def api_tts():
                 os.remove(temp_filename)
              return f"TTS Error (Both Edge and Google failed): {str(gtts_error)}", 500
 
-
-@app.route('/api/sync_batch', methods=['POST'])
-def api_sync_batch():
-    data = request.json
-    results = data.get('results', [])
-
-    if not results:
-        return jsonify({'status': 'success'})
-
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        
-        # 1. Collect all involved card_ids
-        card_ids = set(item.get('card_id') for item in results if item.get('card_id') is not None)
-
-        if not card_ids:
-            return jsonify({'status': 'success'})
-
-        # 2. Bulk Fetch current status
-        # Optimization: Query all relevant cards at once to avoid N+1 query problem
-        placeholders = ','.join('?' for _ in card_ids)
-        query = f"SELECT id, interval, repetition, ef FROM cards WHERE id IN ({placeholders})"
-        cursor.execute(query, list(card_ids))
-        rows = cursor.fetchall()
-
-        # Create local state cache: card_id -> {state dict}
-        card_states = {
-            row['id']: {
-                'interval': row['interval'],
-                'repetition': row['repetition'],
-                'ef': row['ef']
-            } for row in rows
-        }
-
-        updates_map = {} # card_id -> (new_interval, new_rep, new_ef, new_date, card_id)
-        today = datetime.now().date()
-
-        # 3. In-memory Processing: Calculate state changes sequentially
-        for item in results:
-            card_id = item.get('card_id')
-            direction = item.get('direction') # 'right' or 'left'
-            
-            if card_id in card_states:
-                # Convert to SM-2 quality score
-                quality = 5 if direction == 'right' else 0
-
-                state = card_states[card_id]
-                new_interval, new_rep, new_ef = sm2_algorithm(
-                    quality, state['interval'], state['repetition'], state['ef']
-                )
-
-                # Update local cache so if the same card appears again in this batch,
-                # it uses the updated state for the next calculation.
-                state['interval'] = new_interval
-                state['repetition'] = new_rep
-                state['ef'] = new_ef
-
-                new_date = today + timedelta(days=new_interval)
-
-                # Record the latest update values (overwriting previous ones for the same card in this batch)
-                updates_map[card_id] = (new_interval, new_rep, new_ef, new_date, card_id)
-
-        # 4. Bulk Update
-        # Optimization: Use executemany to commit all changes in one go
-        if updates_map:
-            cursor.executemany("""
-                UPDATE cards
-                SET interval = ?, repetition = ?, ef = ?, next_review = ?
-                WHERE id = ?
-            """, list(updates_map.values()))
-
-        conn.commit()
-            
-    return jsonify({'status': 'success'})
 
 @app.route('/api/make_sentence', methods=['POST'])
 def api_make_sentence():
