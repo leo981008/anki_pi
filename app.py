@@ -10,6 +10,7 @@ import edge_tts
 import threading
 import uuid
 import os
+from collections import defaultdict
 from gtts import gTTS
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash, send_file, send_from_directory
 from datetime import datetime, timedelta
@@ -214,26 +215,41 @@ def index():
         folders_with_decks = []
         total_due_count = 0
 
+        # Single query to get all decks and counts for all folders (N+1 optimization)
+        cursor.execute("""
+            SELECT
+                df.folder_id,
+                d.id,
+                d.name,
+                COUNT(c.id) as due_count
+            FROM decks d
+            JOIN deck_folders df ON d.id = df.deck_id
+            LEFT JOIN cards c ON d.id = c.deck_id AND c.next_review <= ?
+            GROUP BY df.folder_id, d.id, d.name
+            ORDER BY d.name
+        """, (today,))
+
+        all_decks = cursor.fetchall()
+
+        # Group decks by folder in Python
+        decks_by_folder = defaultdict(list)
+        for row in all_decks:
+            # Convert row to dict to preserve data
+            deck_data = {
+                'id': row['id'],
+                'name': row['name'],
+                'due_count': row['due_count']
+            }
+            decks_by_folder[row['folder_id']].append(deck_data)
+
         for folder in folders:
             folder_dict = dict(folder)
             
-            # New query using the many-to-many junction table
-            cursor.execute("""
-                SELECT 
-                    d.id, 
-                    d.name, 
-                    COUNT(c.id) as due_count
-                FROM decks d
-                JOIN deck_folders df ON d.id = df.deck_id
-                LEFT JOIN cards c ON d.id = c.deck_id AND c.next_review <= ?
-                WHERE df.folder_id = ?
-                GROUP BY d.id, d.name
-                ORDER BY d.name
-            """, (today, folder['id']))
-            decks_with_due_counts = cursor.fetchall()
+            # Fetch decks from the pre-fetched dictionary
+            decks = decks_by_folder.get(folder['id'], [])
             
-            folder_dict['decks'] = decks_with_due_counts
-            folder_dict['total_due'] = sum(d['due_count'] for d in decks_with_due_counts)
+            folder_dict['decks'] = decks
+            folder_dict['total_due'] = sum(d['due_count'] for d in decks)
             total_due_count += folder_dict['total_due']
             
             folders_with_decks.append(folder_dict)
