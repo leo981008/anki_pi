@@ -2,94 +2,170 @@
 {% block content %}
     <div style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
         <a href="/" class="btn btn-gray" style="padding: 8px 15px;">↩ 回首頁</a>
-        {% if due_count is defined and due_count > 0 %}
-            <span style="font-weight: 500; color: var(--text-color);">今日剩餘: <b>{{ due_count }}</b></span>
-        {% endif %}
+        <span id="due-count-container" style="font-weight: 500; color: var(--text-color); display: {% if due_count > 0 %}inline{% else %}none{% endif %};">
+            今日剩餘: <b id="due-count-value">{{ due_count }}</b>
+        </span>
     </div>
 
-    {% if card %}
-        <div class="card" style="min-height: 350px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;">
+    <!-- Card Container -->
+    <div id="study-card-container" class="card"
+         style="min-height: 350px; display: {% if card %}flex{% else %}none{% endif %}; flex-direction: column; justify-content: center; align-items: center; text-align: center;"
+         data-card-id="{{ card.id if card else '' }}"
+         data-deck-id="{{ deck_id if deck_id else '' }}"
+         data-folder-id="{{ folder_id if folder_id else '' }}">
+
+        <div id="question-area" style="margin-bottom: 1rem;">
+            <h2 id="card-front-text" style="margin: 0; font-size: 2.2rem; font-weight: 600;">{{ card.front if card else '' }}</h2>
+            <button onclick="speakText(document.getElementById('card-front-text').innerText)" class="btn btn-gray" style="border-radius: 50%; width: 45px; height: 45px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 1.2rem; margin-top: 1rem;">
+                🔊
+            </button>
+        </div>
+
+        <div id="ans" style="display:none; width: 100%; text-align: center;">
+            <hr style="margin: 20px auto; width: 80%; border-color: var(--border-color);">
             
-            <div id="question-area" style="margin-bottom: 1rem;">
-                <h2 id="card-front-text" style="margin: 0; font-size: 2.2rem; font-weight: 600;">{{ card.front }}</h2>
-                <button onclick="speakText(document.getElementById('card-front-text').innerText)" class="btn btn-gray" style="border-radius: 50%; width: 45px; height: 45px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 1.2rem; margin-top: 1rem;">
+            <div style="margin-bottom: 2rem;">
+                <p id="card-back-text" style="font-size: 1.8rem; color: var(--primary-color); font-weight: 500; margin: 0;">{{ card.back if card else '' }}</p>
+                <button onclick="speakText(document.getElementById('card-back-text').innerText)" class="btn btn-gray" style="border-radius: 50%; width: 45px; height: 45px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 1.2rem; margin-top: 0.5rem;">
                     🔊
                 </button>
             </div>
 
-            <div id="ans" style="display:none; width: 100%; text-align: center;">
-                <hr style="margin: 20px auto; width: 80%; border-color: var(--border-color);">
-                
-                <div style="margin-bottom: 2rem;">
-                    <p id="card-back-text" style="font-size: 1.8rem; color: var(--primary-color); font-weight: 500; margin: 0;">{{ card.back }}</p>
-                    <button onclick="speakText(document.getElementById('card-back-text').innerText)" class="btn btn-gray" style="border-radius: 50%; width: 45px; height: 45px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 1.2rem; margin-top: 0.5rem;">
-                        🔊
-                    </button>
-                </div>
-                
-                {% if card.english_word %}
-                <div id="ai-container" style="margin-bottom: 2rem;">
-                    <button id="ai-btn" class="btn btn-special" data-word="{{ card.english_word }}" style="border-radius: 20px; font-size: 0.9rem;" onclick="makeAiSentence(this.dataset.word)">✨ AI 造句</button>
-                    <div id="ai-result" style="margin-top: 10px; padding: 10px; background: var(--success-bg); border-radius: 10px; color: var(--success-color); text-align: left; display: none; white-space: pre-wrap;"></div>
-                </div>
-                {% endif %}
-
-                <p style="margin-bottom: 1rem; color: #888;">你對這個單字的印象如何？</p>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px;">
-                    {% if deck_id %}
-                        <a href="{{ url_for('answer', card_id=card.id, quality=0, deck_id=deck_id) }}" class="btn btn-red">忘記</a>
-                        <a href="{{ url_for('answer', card_id=card.id, quality=3, deck_id=deck_id) }}" class="btn btn-special">困難</a>
-                        <a href="{{ url_for('answer', card_id=card.id, quality=4, deck_id=deck_id) }}" class="btn btn-primary">普通</a>
-                        <a href="{{ url_for('answer', card_id=card.id, quality=5, deck_id=deck_id) }}" class="btn btn-green">簡單</a>
-                    {% elif folder_id %}
-                        <a href="{{ url_for('answer', card_id=card.id, quality=0, folder_id=folder_id) }}" class="btn btn-red">忘記</a>
-                        <a href="{{ url_for('answer', card_id=card.id, quality=3, folder_id=folder_id) }}" class="btn btn-special">困難</a>
-                        <a href="{{ url_for('answer', card_id=card.id, quality=4, folder_id=folder_id) }}" class="btn btn-primary">普通</a>
-                        <a href="{{ url_for('answer', card_id=card.id, quality=5, folder_id=folder_id) }}" class="btn btn-green">簡單</a>
-                    {% endif %}
-                </div>
+            <div id="ai-container" style="margin-bottom: 2rem; display: block;">
+                <button id="ai-btn" class="btn btn-special" data-word="{{ card.english_word if card else '' }}" style="border-radius: 20px; font-size: 0.9rem;" onclick="makeAiSentence(this.dataset.word)">✨ AI 造句</button>
+                <div id="ai-result" style="margin-top: 10px; padding: 10px; background: var(--success-bg); border-radius: 10px; color: var(--success-color); text-align: left; display: none; white-space: pre-wrap;"></div>
             </div>
 
-            <button id="show" class="btn btn-primary" style="width: 80%; max-width: 300px; padding: 15px; font-size: 1.1em; margin-top: auto;" onclick="document.getElementById('ans').style.display='block';this.style.display='none'">
-                顯示答案
-            </button>
+            <p style="margin-bottom: 1rem; color: #888;">你對這個單字的印象如何？</p>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px;">
+                <button onclick="submitAnswer(0)" class="btn btn-red">忘記</button>
+                <button onclick="submitAnswer(3)" class="btn btn-special">困難</button>
+                <button onclick="submitAnswer(4)" class="btn btn-primary">普通</button>
+                <button onclick="submitAnswer(5)" class="btn btn-green">簡單</button>
+            </div>
         </div>
 
-        <script>
-            async function makeAiSentence(word) {
-                const aiBtn = document.getElementById('ai-btn');
-                const aiResult = document.getElementById('ai-result');
+        <button id="show" class="btn btn-primary" style="width: 80%; max-width: 300px; padding: 15px; font-size: 1.1em; margin-top: auto;" onclick="document.getElementById('ans').style.display='block';this.style.display='none'">
+            顯示答案
+        </button>
+    </div>
 
-                aiBtn.disabled = true;
-                aiBtn.innerText = '生成中...';
-                aiResult.style.display = 'block';
-                aiResult.innerText = '正在詢問 AI...';
+    <!-- Congrats Container -->
+    <div id="study-congrats-container" class="card text-center" style="display: {% if card %}none{% else %}block{% endif %};">
+        <h3 style="color: var(--green-color);">🎉 恭喜！</h3>
+        <p>今天的單字都背完了。</p>
+        <a href="/" class="btn btn-primary" style="margin-top: 1rem;">回首頁</a>
+    </div>
 
-                try {
-                    const res = await fetch('/api/make_sentence', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRFToken': csrfToken
-                        },
-                        body: JSON.stringify({ word: word })
-                    });
-                    const data = await res.json();
-                    aiResult.innerText = data.sentence || '生成失敗';
-                } catch (err) {
-                    aiResult.innerText = '連線錯誤';
-                    console.error(err);
-                } finally {
-                    aiBtn.disabled = false;
-                    aiBtn.innerText = '✨ AI 造句';
-                }
+    <script>
+        async function makeAiSentence(word) {
+            const aiBtn = document.getElementById('ai-btn');
+            const aiResult = document.getElementById('ai-result');
+
+            if (!word) return;
+
+            aiBtn.disabled = true;
+            aiBtn.innerText = '生成中...';
+            aiResult.style.display = 'block';
+            aiResult.innerText = '正在詢問 AI...';
+
+            try {
+                const res = await fetch('/api/make_sentence', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({ word: word })
+                });
+                const data = await res.json();
+                aiResult.innerText = data.sentence || '生成失敗';
+            } catch (err) {
+                aiResult.innerText = '連線錯誤';
+                console.error(err);
+            } finally {
+                aiBtn.disabled = false;
+                aiBtn.innerText = '✨ AI 造句';
             }
-        </script>
-    {% else %}
-        <div class="card text-center">
-            <h3 style="color: var(--green-color);">🎉 恭喜！</h3>
-            <p>今天的單字都背完了。</p>
-            <a href="/" class="btn btn-primary" style="margin-top: 1rem;">回首頁</a>
-        </div>
-    {% endif %}
+        }
+
+        async function submitAnswer(quality) {
+            const container = document.getElementById('study-card-container');
+            const cardId = container.dataset.cardId;
+            const deckId = container.dataset.deckId;
+            const folderId = container.dataset.folderId;
+
+            if (!cardId) return;
+
+            try {
+                const res = await fetch('/api/study/answer', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({
+                        card_id: cardId,
+                        quality: quality,
+                        deck_id: deckId || null,
+                        folder_id: folderId || null
+                    })
+                });
+
+                if (!res.ok) {
+                    throw new Error('API Error');
+                }
+
+                const data = await res.json();
+
+                if (data.status === 'success') {
+                    updateUI(data);
+                }
+            } catch (err) {
+                console.error("Submit error:", err);
+                alert("提交失敗，請檢查網路連線。");
+            }
+        }
+
+        function updateUI(data) {
+            const countContainer = document.getElementById('due-count-container');
+            const countValue = document.getElementById('due-count-value');
+
+            if (data.due_count > 0) {
+                countContainer.style.display = 'inline';
+                countValue.innerText = data.due_count;
+            } else {
+                countContainer.style.display = 'none';
+            }
+
+            if (!data.card) {
+                document.getElementById('study-card-container').style.display = 'none';
+                document.getElementById('study-congrats-container').style.display = 'block';
+                return;
+            }
+
+            // Update Card Data
+            const container = document.getElementById('study-card-container');
+            container.dataset.cardId = data.card.id;
+
+            document.getElementById('card-front-text').innerText = data.card.front;
+            document.getElementById('card-back-text').innerText = data.card.back;
+
+            // Update AI button
+            const aiBtn = document.getElementById('ai-btn');
+            if (data.card.english_word) {
+                aiBtn.dataset.word = data.card.english_word;
+            }
+
+            // Reset AI result
+            const aiResult = document.getElementById('ai-result');
+            aiResult.style.display = 'none';
+            aiResult.innerText = '';
+
+            // Reset View (Hide answer, show front)
+            document.getElementById('ans').style.display = 'none';
+            const showBtn = document.getElementById('show');
+            showBtn.style.display = ''; // Revert to CSS default (inline-flex/block)
+        }
+    </script>
 {% endblock %}

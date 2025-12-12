@@ -201,6 +201,54 @@ def ask_ollama(prompt):
     except Exception as e:
         return f"連線錯誤: {str(e)}"
 
+# --- Helper: Fetch Next Card ---
+def fetch_next_card_data(deck_ids):
+    """
+    Helper to fetch the next card for a given list of deck_ids.
+    Returns (card_dict, due_count).
+    card_dict includes processed 'front', 'back', 'english_word', and 'id'.
+    """
+    today = datetime.now().date()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+
+        if not deck_ids:
+            return None, 0
+
+        placeholders = ','.join('?' for _ in deck_ids)
+        params = [today] + deck_ids
+
+        # Get count
+        cursor.execute(f"SELECT COUNT(id) FROM cards WHERE next_review <= ? AND deck_id IN ({placeholders})", params)
+        due_count = cursor.fetchone()[0]
+
+        # Get random card
+        cursor.execute(f"SELECT * FROM cards WHERE next_review <= ? AND deck_id IN ({placeholders}) ORDER BY RANDOM() LIMIT 1", params)
+        card = cursor.fetchone()
+
+    if card:
+        card_data = dict(card)
+        # Store original english word (assuming Front is English)
+        english_word = card_data['front']
+        card_data['english_word'] = english_word
+
+        # Reverse logic
+        is_reverse = random.choice([True, False]) if card_data['card_type'] == 'recognize' else True
+
+        if is_reverse:
+            original_english = card_data['front']
+            original_chinese = card_data['back']
+            if len(original_english) > 2:
+                hint = f"{original_english[0]}...{original_english[-1]}"
+            else:
+                hint = f"{original_english[0]}..."
+            card_data['front'] = f"{original_chinese} ({hint})"
+            card_data['back'] = original_english
+
+        return card_data, due_count
+    else:
+        return None, 0
+
 # --- 路由設定 ---
 
 @app.route('/')
@@ -453,83 +501,63 @@ def add_card():
 # --- 傳統學習模式 (含隨機中英切換) ---
 @app.route('/study/<int:deck_id>')
 def study(deck_id):
-    today = datetime.now().date()
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT COUNT(id) FROM cards WHERE next_review <= ? AND deck_id = ?", (today, deck_id))
-        due_count = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT * FROM cards WHERE next_review <= ? AND deck_id = ? ORDER BY RANDOM() LIMIT 1", (today, deck_id))
-        card = cursor.fetchone()
-    
-    if card:
-        card_data = dict(card)
-        # 保存原始英文單字供 AI 造句使用 (假設 Front 是英文)
-        english_word = card_data['front']
-        card_data['english_word'] = english_word
-
-        is_reverse = random.choice([True, False]) if card_data['card_type'] == 'recognize' else True
-        
-        if is_reverse:
-            original_english = card_data['front']
-            original_chinese = card_data['back']
-            if len(original_english) > 2:
-                hint = f"{original_english[0]}...{original_english[-1]}"
-            else:
-                hint = f"{original_english[0]}..."
-            card_data['front'] = f"{original_chinese} ({hint})"
-            card_data['back'] = original_english
-
-        return render_template('study.html', card=card_data, due_count=due_count, deck_id=deck_id)
-    else:
-        return render_template('study.html', card=None, due_count=0, deck_id=deck_id)
+    card_data, due_count = fetch_next_card_data([deck_id])
+    return render_template('study.html', card=card_data, due_count=due_count, deck_id=deck_id)
 
 @app.route('/study/folder/<int:folder_id>')
 def study_folder(folder_id):
-    today = datetime.now().date()
     with get_db_connection() as conn:
         cursor = conn.cursor()
-
-        # Get all deck_ids for the folder
         cursor.execute("SELECT deck_id FROM deck_folders WHERE folder_id = ?", (folder_id,))
         deck_ids = [row['deck_id'] for row in cursor.fetchall()]
-        
-        if not deck_ids:
-            return render_template('study.html', card=None, due_count=0, folder_id=folder_id)
 
-        # Build dynamic query for multiple decks
-        placeholders = ','.join('?' for _ in deck_ids)
-        
-        # Get total due count for all decks in the folder
-        cursor.execute(f"SELECT COUNT(id) FROM cards WHERE next_review <= ? AND deck_id IN ({placeholders})", [today] + deck_ids)
-        due_count = cursor.fetchone()[0]
-        
-        # Get one random card from all due cards in the folder
-        cursor.execute(f"SELECT * FROM cards WHERE next_review <= ? AND deck_id IN ({placeholders}) ORDER BY RANDOM() LIMIT 1", [today] + deck_ids)
-        card = cursor.fetchone()
+    card_data, due_count = fetch_next_card_data(deck_ids)
+    return render_template('study.html', card=card_data, due_count=due_count, folder_id=folder_id)
 
-    if card:
-        card_data = dict(card)
-        # 保存原始英文單字供 AI 造句使用 (假設 Front 是英文)
-        english_word = card_data['front']
-        card_data['english_word'] = english_word
+@app.route('/api/study/answer', methods=['POST'])
+def api_study_answer():
+    data = request.json
+    card_id = data.get('card_id')
+    quality = data.get('quality')
+    deck_id = data.get('deck_id')
+    folder_id = data.get('folder_id')
 
-        is_reverse = random.choice([True, False]) if card_data['card_type'] == 'recognize' else True
+    if card_id is None or quality is None:
+        return jsonify({'error': 'Missing parameters'}), 400
         
-        if is_reverse:
-            original_english = card_data['front']
-            original_chinese = card_data['back']
-            if len(original_english) > 2:
-                hint = f"{original_english[0]}...{original_english[-1]}"
-            else:
-                hint = f"{original_english[0]}..."
-            card_data['front'] = f"{original_chinese} ({hint})"
-            card_data['back'] = original_english
+    # 1. Update SM-2
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT interval, repetition, ef FROM cards WHERE id = ?", (card_id,))
+        card_row = cursor.fetchone()
+        
+        if card_row:
+            old_interval, old_rep, old_ef = card_row
+            new_interval, new_rep, new_ef = sm2_algorithm(int(quality), old_interval, old_rep, old_ef)
+            new_date = datetime.now().date() + timedelta(days=new_interval)
             
-        return render_template('study.html', card=card_data, due_count=due_count, folder_id=folder_id)
-    else:
-        return render_template('study.html', card=None, due_count=0, folder_id=folder_id)
+            cursor.execute("UPDATE cards SET interval = ?, repetition = ?, ef = ?, next_review = ? WHERE id = ?",
+                           (new_interval, new_rep, new_ef, new_date, card_id))
+            conn.commit()
+
+    # 2. Determine Deck IDs for next card
+    target_deck_ids = []
+    if deck_id:
+        target_deck_ids = [int(deck_id)]
+    elif folder_id:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT deck_id FROM deck_folders WHERE folder_id = ?", (folder_id,))
+            target_deck_ids = [row['deck_id'] for row in cursor.fetchall()]
+
+    # 3. Fetch Next Card
+    next_card, due_count = fetch_next_card_data(target_deck_ids)
+
+    return jsonify({
+        'status': 'success',
+        'card': next_card,
+        'due_count': due_count
+    })
 
 @app.route('/answer/<int:card_id>/<int:quality>')
 def answer(card_id, quality):
