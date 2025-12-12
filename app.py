@@ -10,6 +10,7 @@ import edge_tts
 import threading
 import uuid
 import os
+import hashlib
 from collections import defaultdict
 from gtts import gTTS
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash, send_file, send_from_directory
@@ -21,6 +22,9 @@ app = Flask(__name__)
 # 從環境變數讀取 SECRET_KEY，如果找不到則使用一個預設值 (僅供開發)
 app.secret_key = SECRET_KEY
 csrf = CSRFProtect(app)
+
+TTS_DIR = os.path.join(app.static_folder, 'tts')
+os.makedirs(TTS_DIR, exist_ok=True)
 
 # --- 資料庫初始化 ---
 def get_db_connection():
@@ -490,6 +494,10 @@ def add_card():
                 (front, back, today, card_type, deck_id)
             )
             conn.commit()
+
+            # Trigger background TTS generation for the new card
+            start_specific_tts([front, back])
+
             flash(f"成功新增卡片: {front}", "success")
             return redirect(url_for('add_card'))
 
@@ -616,6 +624,85 @@ def ai_check():
 # TTS Lock to prevent concurrency issues if multiple requests come in
 tts_lock = threading.Lock()
 
+def get_tts_filename(text):
+    """Generate a consistent filename based on MD5 hash of the text."""
+    hash_object = hashlib.md5(text.encode())
+    return f"{hash_object.hexdigest()}.mp3"
+
+async def generate_tts_file(text, filepath):
+    """Generates TTS audio file using edge-tts (async)."""
+    try:
+        communicate = edge_tts.Communicate(text, "en-US-AriaNeural")
+        await communicate.save(filepath)
+        return True
+    except Exception as e:
+        print(f"Edge TTS generation failed for '{text}': {e}")
+        return False
+
+def process_tts_list(texts):
+    """Generates TTS files for a list of texts."""
+    for text in texts:
+        if not text or len(text) > 500:
+            continue
+
+        filename = get_tts_filename(text)
+        filepath = os.path.join(TTS_DIR, filename)
+
+        if not os.path.exists(filepath):
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                success = loop.run_until_complete(generate_tts_file(text, filepath))
+                loop.close()
+
+                if not success:
+                    try:
+                        tts = gTTS(text=text, lang='en')
+                        tts.save(filepath)
+                    except Exception as gtts_e:
+                        print(f"gTTS fallback failed for '{text}': {gtts_e}")
+            except Exception as e:
+                print(f"Error generating TTS for '{text}': {e}")
+
+def background_full_scan():
+    """Background task to scan ALL cards and generate missing TTS files."""
+    if not tts_lock.acquire(blocking=False):
+        print("Background scan already running, skipping.")
+        return
+
+    print("Starting background TTS full scan...")
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT front, back FROM cards")
+            cards = cursor.fetchall()
+
+            # Collect all unique texts to avoid duplicate processing
+            all_texts = set()
+            for card in cards:
+                all_texts.add(card['front'])
+                all_texts.add(card['back'])
+
+            process_tts_list(list(all_texts))
+
+        print("Background TTS full scan completed.")
+    except Exception as e:
+        print(f"Background TTS task error: {e}")
+    finally:
+        tts_lock.release()
+
+def start_background_scan():
+    """Starts the full background scan in a separate thread."""
+    thread = threading.Thread(target=background_full_scan)
+    thread.daemon = True
+    thread.start()
+
+def start_specific_tts(texts):
+    """Starts a background thread for specific texts (e.g., after adding a card)."""
+    thread = threading.Thread(target=process_tts_list, args=(texts,))
+    thread.daemon = True
+    thread.start()
+
 @app.route('/api/tts', methods=['GET'])
 def api_tts():
     text = request.args.get('text')
@@ -626,50 +713,29 @@ def api_tts():
     if len(text) > 500:
         return "Text too long (max 500 characters)", 400
 
-    # Generate unique filename for this request
-    temp_filename = f"tts_{uuid.uuid4()}.mp3"
-    
-    # Try Edge TTS first
+    filename = get_tts_filename(text)
+    filepath = os.path.join(TTS_DIR, filename)
+
+    # 1. Check if file exists (Hit)
+    if os.path.exists(filepath):
+        return send_from_directory(TTS_DIR, filename)
+
+    # 2. If not exists (Miss) -> Generate immediately
     try:
-        async def generate_edge_tts():
-            communicate = edge_tts.Communicate(text, "en-US-AriaNeural")
-            await communicate.save(temp_filename)
+        asyncio.run(generate_tts_file(text, filepath))
 
-        # edge-tts internal logic handles file creation safely, but we use lock just in case of
-        # strange side effects or to rate limit concurrent heavy logic if needed.
-        # Actually edge-tts is async, but we are running it sync via asyncio.run for Flask.
-        # The unique filename solves the race condition on file access.
+        if os.path.exists(filepath):
+             return send_from_directory(TTS_DIR, filename)
 
-        asyncio.run(generate_edge_tts())
+        # Fallback to gTTS if Edge TTS produced no file
+        print("Edge TTS failed to produce file, trying gTTS...")
+        tts = gTTS(text=text, lang='en')
+        tts.save(filepath)
+        return send_from_directory(TTS_DIR, filename)
 
-        with open(temp_filename, 'rb') as f:
-            audio_data = f.read()
-
-        # Clean up
-        if os.path.exists(temp_filename):
-            os.remove(temp_filename)
-
-        return audio_data, 200, {'Content-Type': 'audio/mpeg'}
-
-    except Exception as edge_error:
-        print(f"Edge TTS failed: {edge_error}. Falling back to gTTS.")
-        try:
-            # Fallback to gTTS
-            tts = gTTS(text=text, lang='en')
-            tts.save(temp_filename)
-
-            with open(temp_filename, 'rb') as f:
-                audio_data = f.read()
-
-            if os.path.exists(temp_filename):
-                os.remove(temp_filename)
-
-            return audio_data, 200, {'Content-Type': 'audio/mpeg'}
-
-        except Exception as gtts_error:
-             if os.path.exists(temp_filename):
-                os.remove(temp_filename)
-             return f"TTS Error (Both Edge and Google failed): {str(gtts_error)}", 500
+    except Exception as e:
+        print(f"TTS Generation Error: {e}")
+        return f"TTS Error: {str(e)}", 500
 
 
 @app.route('/api/make_sentence', methods=['POST'])
@@ -721,6 +787,10 @@ def import_paste():
                         count += 1
                 
                 conn.commit()
+
+                # Trigger background TTS generation for imported cards
+                start_background_scan()
+
                 flash(f"✅ 成功從貼上內容匯入 {count} 張新卡片！", "success")
                 return redirect(url_for('index'))
 
@@ -760,6 +830,8 @@ def delete_all_cards():
 
 if __name__ == '__main__':
     init_db()
+    # Start TTS generation on startup to catch any missing files
+    start_background_scan()
     # host='0.0.0.0' 讓區域網路內其他裝置可以連線
     # debug=False 在正式環境中是必要的安全措施
     app.run(debug=False, host='0.0.0.0', port=10000)
