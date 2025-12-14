@@ -237,7 +237,12 @@ def fetch_next_card_data(deck_ids):
         card_data['english_word'] = english_word
 
         # Reverse logic
-        is_reverse = random.choice([True, False]) if card_data['card_type'] == 'recognize' else True
+        # recognize: Always English front (is_reverse=False)
+        # spell: Both ways (is_reverse=random)
+        if card_data['card_type'] == 'recognize':
+            is_reverse = False
+        else:
+            is_reverse = random.choice([True, False])
 
         if is_reverse:
             original_english = card_data['front']
