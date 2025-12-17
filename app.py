@@ -129,32 +129,11 @@ def init_db():
         ''')
 
         # --- Default Data and Minor Migrations ---
-        # Ensure default folder exists
-        cursor.execute("SELECT id FROM folders WHERE name = '預設資料夾'")
-        default_folder = cursor.fetchone()
-        if not default_folder:
-            cursor.execute("INSERT INTO folders (name) VALUES ('預設資料夾')")
-            default_folder_id = cursor.lastrowid
-        else:
-            default_folder_id = default_folder[0]
-
-        # Ensure default deck exists
-        cursor.execute("SELECT id FROM decks WHERE name = '預設牌組'")
-        default_deck = cursor.fetchone()
-        if not default_deck:
-            cursor.execute("INSERT INTO decks (name) VALUES ('預設牌組')")
-            default_deck_id = cursor.lastrowid
-            # Associate default deck with default folder
-            cursor.execute("INSERT OR IGNORE INTO deck_folders (deck_id, folder_id) VALUES (?, ?)", (default_deck_id, default_folder_id))
-        else:
-            default_deck_id = default_deck[0]
-
         # Check if old cards have a deck_id
         cursor.execute("PRAGMA table_info(cards)")
         card_columns = [column[1] for column in cursor.fetchall()]
         if 'deck_id' not in card_columns:
             cursor.execute("ALTER TABLE cards ADD COLUMN deck_id INTEGER")
-            cursor.execute("UPDATE cards SET deck_id = ? WHERE deck_id IS NULL", (default_deck_id,))
         
         # Check if card_type column exists
         if 'card_type' not in card_columns:
