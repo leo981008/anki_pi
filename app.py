@@ -417,6 +417,77 @@ def manage_decks():
         
     return render_template('decks.html', decks=decks, folders=folders)
 
+@app.route('/deck/<int:deck_id>/cards')
+def view_deck_cards(deck_id):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+
+        # Get deck name
+        cursor.execute("SELECT name FROM decks WHERE id = ?", (deck_id,))
+        deck = cursor.fetchone()
+
+        if not deck:
+            return "Deck not found", 404
+
+        # Get cards
+        cursor.execute("SELECT * FROM cards WHERE deck_id = ? ORDER BY next_review", (deck_id,))
+        cards = cursor.fetchall()
+
+    return render_template('deck_cards.html', deck=deck, cards=cards)
+
+@app.route('/card/<int:card_id>/edit', methods=['GET', 'POST'])
+def edit_card(card_id):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+
+        if request.method == 'POST':
+            front = request.form.get('front')
+            back = request.form.get('back')
+            card_type = request.form.get('card_type')
+
+            if front and back and card_type:
+                cursor.execute("""
+                    UPDATE cards
+                    SET front = ?, back = ?, card_type = ?
+                    WHERE id = ?
+                """, (front, back, card_type, card_id))
+                conn.commit()
+
+                # Fetch deck_id for redirect
+                cursor.execute("SELECT deck_id FROM cards WHERE id = ?", (card_id,))
+                card = cursor.fetchone()
+
+                flash("卡片更新成功！", "success")
+                return redirect(url_for('view_deck_cards', deck_id=card['deck_id']))
+
+        # GET request
+        cursor.execute("SELECT * FROM cards WHERE id = ?", (card_id,))
+        card = cursor.fetchone()
+
+        if not card:
+            return "Card not found", 404
+
+    return render_template('edit_card.html', card=card)
+
+@app.route('/card/<int:card_id>/delete', methods=['POST'])
+def delete_card(card_id):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+
+        # Get deck_id before deletion for redirect
+        cursor.execute("SELECT deck_id FROM cards WHERE id = ?", (card_id,))
+        card = cursor.fetchone()
+
+        if card:
+            deck_id = card['deck_id']
+            cursor.execute("DELETE FROM cards WHERE id = ?", (card_id,))
+            conn.commit()
+            flash("卡片已刪除。", "success")
+            return redirect(url_for('view_deck_cards', deck_id=deck_id))
+        else:
+            flash("卡片不存在。", "error")
+            return redirect(url_for('index'))
+
 @app.route('/folder/<int:folder_id>/manage', methods=['GET', 'POST'])
 def manage_folder_content(folder_id):
     with get_db_connection() as conn:

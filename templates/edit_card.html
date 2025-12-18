@@ -1,0 +1,28 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="card" style="max-width: 600px; margin: 0 auto;">
+    <h2>✏️ 編輯卡片</h2>
+
+    <form action="{{ url_for('edit_card', card_id=card.id) }}" method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <label for="front">正面 (英文)</label>
+        <input type="text" id="front" name="front" value="{{ card.front }}" required>
+
+        <label for="back">背面 (中文)</label>
+        <input type="text" id="back" name="back" value="{{ card.back }}" required>
+
+        <label for="card_type">卡片類型</label>
+        <select id="card_type" name="card_type" required>
+            <option value="recognize" {% if card.card_type == 'recognize' %}selected{% endif %}>辨識 (英 -> 中)</option>
+            <option value="spell" {% if card.card_type == 'spell' %}selected{% endif %}>拼寫 (雙向)</option>
+        </select>
+
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button type="submit" class="btn btn-green">💾 儲存變更</button>
+            <a href="{{ url_for('view_deck_cards', deck_id=card.deck_id) }}" class="btn btn-secondary">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
