@@ -21,7 +21,15 @@
             <tbody>
                 {% for card in cards %}
                 <tr style="border-bottom: 1px solid var(--border-color);">
-                    <td style="padding: 12px;">{{ card.front }}</td>
+                    <td style="padding: 12px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                            <span>{{ card.front }}</span>
+                            <div style="display: flex; gap: 4px;">
+                                <button onclick="speakText('{{ card.front | replace("'", "\\'") }}')" class="btn btn-secondary" style="padding: 2px 6px; font-size: 0.8rem; border-radius: 50%;" title="發音">🔊</button>
+                                <button onclick="openAiModal('{{ card.front | replace("'", "\\'") }}')" class="btn btn-special" style="padding: 2px 8px; font-size: 0.8rem; border-radius: 12px;" title="AI 造句">✨ AI</button>
+                            </div>
+                        </div>
+                    </td>
                     <td style="padding: 12px;">{{ card.back }}</td>
                     <td style="padding: 12px; text-align: center;">
                         {% if card.card_type == 'spell' %}
@@ -54,4 +62,78 @@
         </table>
     </div>
 </div>
+
+<!-- AI Modal -->
+<div id="ai-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; align-items: center; justify-content: center;">
+    <div class="card" style="width: 90%; max-width: 500px; max-height: 80vh; overflow-y: auto; position: relative; margin: 0;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h3>✨ AI 造句</h3>
+            <button onclick="closeAiModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer;">&times;</button>
+        </div>
+
+        <div id="ai-modal-content">
+            <p id="ai-loading" style="display: none; color: var(--text-secondary);">正在生成例句中...</p>
+            <div id="ai-result-text" style="white-space: pre-wrap; line-height: 1.6;"></div>
+            <div id="ai-error" style="display: none; color: var(--error-color); margin-top: 10px;"></div>
+        </div>
+
+        <div style="margin-top: 20px; text-align: right;">
+            <button onclick="closeAiModal()" class="btn btn-secondary">關閉</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const aiModal = document.getElementById('ai-modal');
+    const aiLoading = document.getElementById('ai-loading');
+    const aiResultText = document.getElementById('ai-result-text');
+    const aiError = document.getElementById('ai-error');
+
+    function openAiModal(word) {
+        if (!word) return;
+
+        // Reset state
+        aiResultText.innerText = '';
+        aiError.style.display = 'none';
+        aiLoading.style.display = 'block';
+        aiModal.style.display = 'flex';
+
+        // Call API
+        fetch('/api/make_sentence', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': "{{ csrf_token() }}"
+            },
+            body: JSON.stringify({ word: word })
+        })
+        .then(response => response.json())
+        .then(data => {
+            aiLoading.style.display = 'none';
+            if (data.sentence) {
+                aiResultText.innerText = data.sentence;
+            } else if (data.error) {
+                aiError.innerText = data.error;
+                aiError.style.display = 'block';
+            }
+        })
+        .catch(err => {
+            aiLoading.style.display = 'none';
+            aiError.innerText = '連線錯誤，請稍後再試。';
+            aiError.style.display = 'block';
+            console.error(err);
+        });
+    }
+
+    function closeAiModal() {
+        aiModal.style.display = 'none';
+    }
+
+    // Close modal when clicking outside
+    aiModal.addEventListener('click', function(event) {
+        if (event.target === aiModal) {
+            closeAiModal();
+        }
+    });
+</script>
 {% endblock %}
