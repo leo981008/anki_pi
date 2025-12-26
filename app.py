@@ -111,15 +111,17 @@ def init_db():
         ''')
 
         # --- Schema and Migration to Many-to-Many (Cards <-> Decks) ---
-        cursor.execute("CREATE TABLE IF NOT EXISTS cards (id INTEGER PRIMARY KEY AUTOINCREMENT)") # Minimal create to ensure check works
-        cursor.execute("PRAGMA table_info(cards)")
-        card_columns = [column[1] for column in cursor.fetchall()]
+        # Only check/migrate if cards table already exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cards'")
+        if cursor.fetchone():
+            cursor.execute("PRAGMA table_info(cards)")
+            card_columns = [column[1] for column in cursor.fetchall()]
 
-        if 'deck_id' in card_columns:
-            print("Migrating cards to Many-to-Many schema...")
-            # 1. Create junction table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS card_decks (
+            if 'deck_id' in card_columns:
+                print("Migrating cards to Many-to-Many schema...")
+                # 1. Create junction table
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS card_decks (
                     card_id INTEGER NOT NULL,
                     deck_id INTEGER NOT NULL,
                     PRIMARY KEY (card_id, deck_id),
@@ -128,40 +130,40 @@ def init_db():
                 )
             ''')
 
-            # 2. Migrate data
-            cursor.execute("SELECT id, deck_id FROM cards WHERE deck_id IS NOT NULL")
-            relations = cursor.fetchall()
-            cursor.executemany("INSERT OR IGNORE INTO card_decks (card_id, deck_id) VALUES (?, ?)", relations)
+                # 2. Migrate data
+                cursor.execute("SELECT id, deck_id FROM cards WHERE deck_id IS NOT NULL")
+                relations = cursor.fetchall()
+                cursor.executemany("INSERT OR IGNORE INTO card_decks (card_id, deck_id) VALUES (?, ?)", relations)
 
-            # 3. Recreate cards table without deck_id
-            cursor.execute('''
-                CREATE TABLE cards_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    front TEXT NOT NULL,
-                    back TEXT NOT NULL,
-                    next_review DATE NOT NULL,
-                    interval INTEGER DEFAULT 0,
-                    repetition INTEGER DEFAULT 0,
-                    ef FLOAT DEFAULT 2.5,
-                    card_type TEXT NOT NULL DEFAULT 'recognize'
-                )
-            ''')
+                # 3. Recreate cards table without deck_id
+                cursor.execute('''
+                    CREATE TABLE cards_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        front TEXT NOT NULL,
+                        back TEXT NOT NULL,
+                        next_review DATE NOT NULL,
+                        interval INTEGER DEFAULT 0,
+                        repetition INTEGER DEFAULT 0,
+                        ef FLOAT DEFAULT 2.5,
+                        card_type TEXT NOT NULL DEFAULT 'recognize'
+                    )
+                ''')
 
-            # Copy data
-            if 'card_type' in card_columns:
-                cursor.execute("""
-                    INSERT INTO cards_new (id, front, back, next_review, interval, repetition, ef, card_type)
-                    SELECT id, front, back, next_review, interval, repetition, ef, card_type FROM cards
-                """)
-            else:
-                cursor.execute("""
-                    INSERT INTO cards_new (id, front, back, next_review, interval, repetition, ef)
-                    SELECT id, front, back, next_review, interval, repetition, ef FROM cards
-                """)
+                # Copy data
+                if 'card_type' in card_columns:
+                    cursor.execute("""
+                        INSERT INTO cards_new (id, front, back, next_review, interval, repetition, ef, card_type)
+                        SELECT id, front, back, next_review, interval, repetition, ef, card_type FROM cards
+                    """)
+                else:
+                    cursor.execute("""
+                        INSERT INTO cards_new (id, front, back, next_review, interval, repetition, ef)
+                        SELECT id, front, back, next_review, interval, repetition, ef FROM cards
+                    """)
 
-            cursor.execute("DROP TABLE cards")
-            cursor.execute("ALTER TABLE cards_new RENAME TO cards")
-            print("Cards table migrated successfully.")
+                cursor.execute("DROP TABLE cards")
+                cursor.execute("ALTER TABLE cards_new RENAME TO cards")
+                print("Cards table migrated successfully.")
 
         # Ensure card_decks and cards exist
         cursor.execute('''
