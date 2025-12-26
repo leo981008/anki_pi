@@ -34,9 +34,11 @@
 
 ## 🚀 快速開始
 
-我們提供了一套自動化腳本，讓你在樹莓派或 Linux 系統上輕鬆部署。
+我們提供了一套自動化腳本，讓你在樹莓派、Linux 或 Windows 系統上輕鬆部署。
 
 ### 1. 安裝 (Installation)
+
+#### 🐧 Linux / Raspberry Pi
 
 **前置需求:**
 - 樹莓派 OS (Raspberry Pi OS) 或基於 Debian/Ubuntu 的 Linux 系統
@@ -66,14 +68,56 @@
     - 服務將自動註冊為 Systemd Service (`anki_pi.service`) 並啟動。
     - 瀏覽器打開 `http://<你的IP>:10000` 即可使用。
 
+#### 🪟 Windows
+
+**前置需求:**
+- Windows 10/11
+- [Python 3.x](https://www.python.org/downloads/) (安裝時請勾選 "Add Python to PATH")
+- [Git for Windows](https://git-scm.com/downloads)
+
+**步驟:**
+
+1.  **克隆專案:**
+    在 PowerShell 或 CMD 中執行：
+    ```powershell
+    git clone https://github.com/your-username/anki_pi.git
+    cd anki_pi
+    ```
+
+2.  **執行安裝腳本:**
+    - 在 `anki_pi` 資料夾中找到 `install.ps1`。
+    - 右鍵點擊檔案，選擇 **「使用 PowerShell 執行」 (Run with PowerShell)**。
+    - 或是直接在 PowerShell 視窗中執行：
+        ```powershell
+        .\install.ps1
+        ```
+
+3.  **設定:**
+    - 腳本會自動建立虛擬環境、安裝依賴。
+    - 依照提示輸入 `.env` 設定 (SECRET_KEY 會自動生成)。
+
+4.  **完成!**
+    - 桌面會建立一個 **Anki Pi** 的捷徑。
+    - 雙擊捷徑即可啟動應用程式 (會開啟一個黑色視窗，請勿關閉)。
+    - 瀏覽器打開 `http://127.0.0.1:10000` 即可使用。
+
 ### 2. 更新 (Update)
 
-當專案有新版本時，請使用更新腳本來確保資料庫與依賴的完整性：
+當專案有新版本時，請使用更新腳本來確保資料庫與依賴的完整性。
+
+#### 🐧 Linux / Raspberry Pi
 
 ```bash
 ./update.sh
 ```
 此腳本會自動執行 `git pull`、更新 Python 依賴套件，並重新啟動服務。
+
+#### 🪟 Windows
+
+1.  關閉正在運行的 Anki Pi 視窗。
+2.  右鍵點擊 `update.ps1`，選擇 **「使用 PowerShell 執行」**。
+3.  腳本會自動拉取最新程式碼並更新依賴。
+4.  更新完成後，重新使用桌面捷徑啟動即可。
 
 ---
 

@@ -32,9 +32,11 @@ This is a lightweight Anki-like web application based on Flask and the SM-2 algo
 
 ## 🚀 Quick Start
 
-We provide an automated installation script `install.sh` that handles system updates, dependency installation, environment configuration, service startup, and daily reminder scheduling in one go.
+We provide automated scripts for easy deployment on Raspberry Pi, Linux, or Windows systems.
 
 ### 1. Environment Setup & Installation
+
+#### 🐧 Linux / Raspberry Pi
 
 **Prerequisites:**
 - Raspberry Pi OS or other Debian/Ubuntu-based Linux systems
@@ -64,6 +66,57 @@ We provide an automated installation script `install.sh` that handles system upd
     After the script finishes, the service will start automatically.
     - **Access the App:** Open `http://<Your_Raspberry_Pi_IP>:10000` in your browser.
     - **Daily Reminder:** The script has automatically scheduled a check every day at 09:00 AM.
+
+#### 🪟 Windows
+
+**Prerequisites:**
+- Windows 10/11
+- [Python 3.x](https://www.python.org/downloads/) (Ensure "Add Python to PATH" is checked during installation)
+- [Git for Windows](https://git-scm.com/downloads)
+
+**Installation Steps:**
+
+1.  **Clone the project:**
+    Run the following in PowerShell or CMD:
+    ```powershell
+    git clone https://github.com/your-username/anki_pi.git
+    cd anki_pi
+    ```
+
+2.  **Run the installation script:**
+    - Find `install.ps1` in the `anki_pi` folder.
+    - Right-click the file and select **"Run with PowerShell"**.
+    - Or run it directly in PowerShell:
+        ```powershell
+        .\install.ps1
+        ```
+
+3.  **Configuration:**
+    - The script will automatically create a virtual environment and install dependencies.
+    - Follow the prompts to set up `.env` (SECRET_KEY will be generated automatically).
+
+4.  **Done!**
+    - A shortcut named **Anki Pi** will be created on your Desktop.
+    - Double-click the shortcut to start the app (a black window will open; do not close it).
+    - Open `http://127.0.0.1:10000` in your browser.
+
+### 2. Update
+
+When a new version is available, use the update script to ensure database and dependency integrity.
+
+#### 🐧 Linux / Raspberry Pi
+
+```bash
+./update.sh
+```
+This script automatically executes `git pull`, updates Python dependencies, and restarts the service.
+
+#### 🪟 Windows
+
+1.  Close any running Anki Pi window.
+2.  Right-click `update.ps1` and select **"Run with PowerShell"**.
+3.  The script will automatically pull the latest code and update dependencies.
+4.  After the update is complete, restart the app using the Desktop shortcut.
 
 ### Manual Installation (Advanced Users)
 
