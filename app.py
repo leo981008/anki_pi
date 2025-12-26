@@ -37,11 +37,10 @@ def init_db():
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
-        # --- Schema and Migration to Many-to-Many ---
+        # --- Schema and Migration to Many-to-Many (Decks <-> Folders) ---
         cursor.execute("PRAGMA table_info(decks)")
         deck_columns = [column[1] for column in cursor.fetchall()]
 
-        # If 'folder_id' exists in decks, we need to migrate to the new many-to-many schema.
         if 'folder_id' in deck_columns:
             # 1. Create the new junction table
             cursor.execute('''
@@ -70,9 +69,9 @@ def init_db():
             cursor.execute("DROP TABLE decks")
             cursor.execute("ALTER TABLE decks_new RENAME TO decks")
             
-            print("資料庫結構已成功升級至新版！")
+            print("Deck-Folder structure migrated.")
 
-        # --- Standard Table Creation (for new setup or after migration) ---
+        # --- Standard Table Creation ---
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS folders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,13 +85,10 @@ def init_db():
             )
         ''')
 
-        # Cleanup potential duplicates in deck_folders before creating constraint if it was missing
+        # Cleanup potential duplicates in deck_folders
         try:
-             # Check if table exists
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='deck_folders'")
             if cursor.fetchone():
-                # We can't easily check for constraint presence in SQLite without parsing sql
-                # But we can try to delete duplicates directly using rowid
                 cursor.execute("""
                     DELETE FROM deck_folders
                     WHERE rowid NOT IN (
@@ -113,6 +109,63 @@ def init_db():
                 FOREIGN KEY(folder_id) REFERENCES folders(id) ON DELETE CASCADE
             )
         ''')
+
+        # --- Schema and Migration to Many-to-Many (Cards <-> Decks) ---
+        # Only check/migrate if cards table already exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cards'")
+        if cursor.fetchone():
+            cursor.execute("PRAGMA table_info(cards)")
+            card_columns = [column[1] for column in cursor.fetchall()]
+
+            if 'deck_id' in card_columns:
+                print("Migrating cards to Many-to-Many schema...")
+                # 1. Create junction table
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS card_decks (
+                    card_id INTEGER NOT NULL,
+                    deck_id INTEGER NOT NULL,
+                    PRIMARY KEY (card_id, deck_id),
+                    FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE CASCADE,
+                    FOREIGN KEY(deck_id) REFERENCES decks(id) ON DELETE CASCADE
+                )
+            ''')
+
+                # 2. Migrate data
+                cursor.execute("SELECT id, deck_id FROM cards WHERE deck_id IS NOT NULL")
+                relations = cursor.fetchall()
+                cursor.executemany("INSERT OR IGNORE INTO card_decks (card_id, deck_id) VALUES (?, ?)", relations)
+
+                # 3. Recreate cards table without deck_id
+                cursor.execute('''
+                    CREATE TABLE cards_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        front TEXT NOT NULL,
+                        back TEXT NOT NULL,
+                        next_review DATE NOT NULL,
+                        interval INTEGER DEFAULT 0,
+                        repetition INTEGER DEFAULT 0,
+                        ef FLOAT DEFAULT 2.5,
+                        card_type TEXT NOT NULL DEFAULT 'recognize'
+                    )
+                ''')
+
+                # Copy data
+                if 'card_type' in card_columns:
+                    cursor.execute("""
+                        INSERT INTO cards_new (id, front, back, next_review, interval, repetition, ef, card_type)
+                        SELECT id, front, back, next_review, interval, repetition, ef, card_type FROM cards
+                    """)
+                else:
+                    cursor.execute("""
+                        INSERT INTO cards_new (id, front, back, next_review, interval, repetition, ef)
+                        SELECT id, front, back, next_review, interval, repetition, ef FROM cards
+                    """)
+
+                cursor.execute("DROP TABLE cards")
+                cursor.execute("ALTER TABLE cards_new RENAME TO cards")
+                print("Cards table migrated successfully.")
+
+        # Ensure card_decks and cards exist
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS cards (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -122,22 +175,19 @@ def init_db():
                 interval INTEGER DEFAULT 0,
                 repetition INTEGER DEFAULT 0,
                 ef FLOAT DEFAULT 2.5,
-                card_type TEXT NOT NULL DEFAULT 'recognize',
-                deck_id INTEGER,
-                FOREIGN KEY (deck_id) REFERENCES decks (id) ON DELETE CASCADE
+                card_type TEXT NOT NULL DEFAULT 'recognize'
             )
         ''')
 
-        # --- Default Data and Minor Migrations ---
-        # Check if old cards have a deck_id
-        cursor.execute("PRAGMA table_info(cards)")
-        card_columns = [column[1] for column in cursor.fetchall()]
-        if 'deck_id' not in card_columns:
-            cursor.execute("ALTER TABLE cards ADD COLUMN deck_id INTEGER")
-        
-        # Check if card_type column exists
-        if 'card_type' not in card_columns:
-            cursor.execute("ALTER TABLE cards ADD COLUMN card_type TEXT NOT NULL DEFAULT 'recognize'")
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS card_decks (
+                card_id INTEGER NOT NULL,
+                deck_id INTEGER NOT NULL,
+                PRIMARY KEY (card_id, deck_id),
+                FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE CASCADE,
+                FOREIGN KEY(deck_id) REFERENCES decks(id) ON DELETE CASCADE
+            )
+        ''')
 
         conn.commit()
 
@@ -184,6 +234,61 @@ def ask_ollama(prompt):
     except Exception as e:
         return f"連線錯誤: {str(e)}"
 
+# --- Merge Helpers ---
+
+def ask_ollama_merge(word, content_list):
+    """
+    Uses AI to merge multiple descriptions of a word.
+    """
+    if not content_list:
+        return ""
+
+    unique_contents = list(set([c.strip() for c in content_list if c.strip()]))
+    if len(unique_contents) <= 1:
+        return unique_contents[0] if unique_contents else ""
+
+    # Prompt construction
+    contents_text = ""
+    for i, content in enumerate(unique_contents, 1):
+        contents_text += f"內容 {i}:\n{content}\n\n"
+
+    prompt = f"""
+    請將以下關於單字 '{word}' 的 {len(unique_contents)} 段描述合併成一段完整且通順的內容。
+
+    {contents_text}
+
+    合併原則：
+    1. 保留所有獨特且重要的資訊。
+    2. 刪除重複的語句。
+    3. 如果包含 HTML 標籤（如 <ul>, <li>, <br>），請保留適當的格式以維持可讀性。
+    4. 若內容差異過大（例如完全不同的意思），請條列式呈現。
+    5. 只回傳合併後的文字，不要有任何額外的說明或開場白。
+    """
+
+    return ask_ollama(prompt)
+
+def calculate_average_stats(cards):
+    """
+    Calculates average interval, repetition, ef, and next_review date.
+    cards: list of dicts or rows
+    """
+    if not cards:
+        return 0, 0, 2.5, datetime.now().date()
+
+    total_interval = sum(c['interval'] for c in cards)
+    total_rep = sum(c['repetition'] for c in cards)
+    total_ef = sum(c['ef'] for c in cards)
+    count = len(cards)
+
+    avg_interval = int(total_interval / count)
+    avg_rep = int(total_rep / count)
+    avg_ef = total_ef / count
+
+    # Calculate next_review: Today + Avg Interval
+    next_review = datetime.now().date() + timedelta(days=avg_interval)
+
+    return avg_interval, avg_rep, avg_ef, next_review
+
 # --- Helper: Fetch Next Card ---
 def fetch_next_card_data(deck_ids):
     """
@@ -201,12 +306,23 @@ def fetch_next_card_data(deck_ids):
         placeholders = ','.join('?' for _ in deck_ids)
         params = [today] + deck_ids
 
-        # Get count
-        cursor.execute(f"SELECT COUNT(id) FROM cards WHERE next_review <= ? AND deck_id IN ({placeholders})", params)
+        # Get count (Join card_decks)
+        cursor.execute(f"""
+            SELECT COUNT(DISTINCT c.id)
+            FROM cards c
+            JOIN card_decks cd ON c.id = cd.card_id
+            WHERE c.next_review <= ? AND cd.deck_id IN ({placeholders})
+        """, params)
         due_count = cursor.fetchone()[0]
 
-        # Get random card
-        cursor.execute(f"SELECT * FROM cards WHERE next_review <= ? AND deck_id IN ({placeholders}) ORDER BY RANDOM() LIMIT 1", params)
+        # Get random card (Join card_decks)
+        cursor.execute(f"""
+            SELECT c.*
+            FROM cards c
+            JOIN card_decks cd ON c.id = cd.card_id
+            WHERE c.next_review <= ? AND cd.deck_id IN ({placeholders})
+            ORDER BY RANDOM() LIMIT 1
+        """, params)
         card = cursor.fetchone()
 
     if card:
@@ -251,16 +367,17 @@ def index():
         folders_with_decks = []
         total_due_count = 0
 
-        # Single query to get all decks and counts for all folders (N+1 optimization)
+        # Optimization: Get deck info and due counts
         cursor.execute("""
             SELECT
                 df.folder_id,
                 d.id,
                 d.name,
-                COUNT(c.id) as due_count
+                COUNT(DISTINCT c.id) as due_count
             FROM decks d
             JOIN deck_folders df ON d.id = df.deck_id
-            LEFT JOIN cards c ON d.id = c.deck_id AND c.next_review <= ?
+            LEFT JOIN card_decks cd ON d.id = cd.deck_id
+            LEFT JOIN cards c ON cd.card_id = c.id AND c.next_review <= ?
             GROUP BY df.folder_id, d.id, d.name
             ORDER BY d.name
         """, (today,))
@@ -290,10 +407,13 @@ def index():
             
             folders_with_decks.append(folder_dict)
 
+        # Show global list of cards with their decks
         cursor.execute("""
-            SELECT c.front, c.back, c.next_review, c.card_type, d.name as deck_name
+            SELECT c.front, c.back, c.next_review, c.card_type, GROUP_CONCAT(d.name, ', ') as deck_name
             FROM cards c
-            JOIN decks d ON c.deck_id = d.id
+            JOIN card_decks cd ON c.id = cd.card_id
+            JOIN decks d ON cd.deck_id = d.id
+            GROUP BY c.id
             ORDER BY c.next_review
         """)
         cards = cursor.fetchall()
@@ -358,7 +478,6 @@ def manage_decks():
                 folder_id = request.form.get('folder_id')
                 if folder_id:
                     try:
-                        # Manually delete associations first (safe even without ON DELETE CASCADE)
                         cursor.execute("DELETE FROM deck_folders WHERE folder_id = ?", (folder_id,))
                         cursor.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
                         conn.commit()
@@ -372,9 +491,17 @@ def manage_decks():
                 deck_id = request.form.get('deck_id')
                 if deck_id:
                     try:
-                        # Manually delete associations first (safe even without ON DELETE CASCADE)
+                        # 1. Delete deck-folder links
                         cursor.execute("DELETE FROM deck_folders WHERE deck_id = ?", (deck_id,))
-                        cursor.execute("DELETE FROM cards WHERE deck_id = ?", (deck_id,))
+                        # 2. Delete card-deck links
+                        cursor.execute("DELETE FROM card_decks WHERE deck_id = ?", (deck_id,))
+                        # 3. Clean up orphaned cards (Optional, but usually desirable in simple systems)
+                        # Find cards that have no deck links left
+                        cursor.execute("""
+                            DELETE FROM cards
+                            WHERE id NOT IN (SELECT DISTINCT card_id FROM card_decks)
+                        """)
+                        # 4. Delete the deck
                         cursor.execute("DELETE FROM decks WHERE id = ?", (deck_id,))
                         conn.commit()
                         flash("已成功刪除牌組及所有相關內容。", "success")
@@ -383,20 +510,6 @@ def manage_decks():
                         print(f"Delete deck error: {e}")
                         flash("刪除牌組失敗，請稍後再試。", "error")
             
-            # Note: conn.commit() is now handled inside the actions above for deletes,
-            # but for other actions (add/edit) it might still rely on this or they need to commit themselves.
-            # Looking at lines 205-298, the other actions don't have commit.
-            # However, calling commit() again on an empty transaction (if already committed) is harmless.
-            # And if we rolled back, the transaction is ended.
-            # But the 'conn' object is still open.
-            # To be safe and consistent with other actions that fall through:
-            # We should probably REMOVE the commit inside the try block if we keep the one at the end,
-            # OR make sure the flow is correct.
-            # The pattern in this function was "do work, then commit at end".
-            # The try/except block breaks this because we need rollback.
-            # If we commit inside try, the final commit is redundant but fine.
-            # If we rollback inside except, the final commit does nothing (no active transaction).
-            # So the current state is acceptable.
             conn.commit()
             return redirect(url_for('manage_decks'))
 
@@ -429,8 +542,14 @@ def view_deck_cards(deck_id):
         if not deck:
             return "Deck not found", 404
 
-        # Get cards
-        cursor.execute("SELECT * FROM cards WHERE deck_id = ? ORDER BY next_review", (deck_id,))
+        # Get cards in this deck
+        cursor.execute("""
+            SELECT c.*
+            FROM cards c
+            JOIN card_decks cd ON c.id = cd.card_id
+            WHERE cd.deck_id = ?
+            ORDER BY c.next_review
+        """, (deck_id,))
         cards = cursor.fetchall()
 
     return render_template('deck_cards.html', deck=deck, cards=cards)
@@ -453,12 +572,15 @@ def edit_card(card_id):
                 """, (front, back, card_type, card_id))
                 conn.commit()
 
-                # Fetch deck_id for redirect
-                cursor.execute("SELECT deck_id FROM cards WHERE id = ?", (card_id,))
-                card = cursor.fetchone()
+                # Find a deck this card belongs to, for redirection
+                cursor.execute("SELECT deck_id FROM card_decks WHERE card_id = ? LIMIT 1", (card_id,))
+                deck_row = cursor.fetchone()
 
                 flash("卡片更新成功！", "success")
-                return redirect(url_for('view_deck_cards', deck_id=card['deck_id']))
+                if deck_row:
+                    return redirect(url_for('view_deck_cards', deck_id=deck_row['deck_id']))
+                else:
+                    return redirect(url_for('index'))
 
         # GET request
         cursor.execute("SELECT * FROM cards WHERE id = ?", (card_id,))
@@ -474,19 +596,46 @@ def delete_card(card_id):
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
-        # Get deck_id before deletion for redirect
-        cursor.execute("SELECT deck_id FROM cards WHERE id = ?", (card_id,))
-        card = cursor.fetchone()
+        # Check if we should Unlink or Delete
+        # Note: In a pure RESTful API we might use DELETE /deck/X/card/Y for unlink
+        # Here we use a form post.
+        # If referrer contains deck id, we could default to unlink, but that's implicit.
+        # Let's see if we can get a deck_id from the request arguments if passed
+        deck_id = request.args.get('deck_id') or request.form.get('deck_id')
 
-        if card:
-            deck_id = card['deck_id']
-            cursor.execute("DELETE FROM cards WHERE id = ?", (card_id,))
+        if deck_id:
+            # Unlink from specific deck
+            cursor.execute("DELETE FROM card_decks WHERE card_id = ? AND deck_id = ?", (card_id, deck_id))
             conn.commit()
-            flash("卡片已刪除。", "success")
+
+            # Check if orphan
+            cursor.execute("SELECT COUNT(*) FROM card_decks WHERE card_id = ?", (card_id,))
+            count = cursor.fetchone()[0]
+            if count == 0:
+                cursor.execute("DELETE FROM cards WHERE id = ?", (card_id,))
+                conn.commit()
+                flash("卡片已從牌組移除（因為無其他關聯，已從資料庫完全刪除）。", "success")
+            else:
+                flash("卡片已從本牌組移除。", "success")
+
             return redirect(url_for('view_deck_cards', deck_id=deck_id))
         else:
-            flash("卡片不存在。", "error")
-            return redirect(url_for('index'))
+            # Global delete (legacy behavior or fallback)
+            # Find a deck to redirect to before deleting
+            cursor.execute("SELECT deck_id FROM card_decks WHERE card_id = ? LIMIT 1", (card_id,))
+            row = cursor.fetchone()
+            redirect_deck_id = row['deck_id'] if row else None
+
+            cursor.execute("DELETE FROM cards WHERE id = ?", (card_id,))
+            # Cascade deletes from card_decks automatically if FK set, but we enforce safely
+            cursor.execute("DELETE FROM card_decks WHERE card_id = ?", (card_id,))
+            conn.commit()
+
+            flash("卡片已刪除。", "success")
+            if redirect_deck_id:
+                return redirect(url_for('view_deck_cards', deck_id=redirect_deck_id))
+            else:
+                return redirect(url_for('index'))
 
 @app.route('/folder/<int:folder_id>/manage', methods=['GET', 'POST'])
 def manage_folder_content(folder_id):
@@ -544,10 +693,16 @@ def add_card():
                 flash("請選擇一個牌組！", "error")
                 return redirect(url_for('add_card'))
 
+            # Insert card
             cursor.execute(
-                "INSERT INTO cards (front, back, next_review, card_type, deck_id, interval, repetition, ef) VALUES (?, ?, ?, ?, ?, 0, 0, 2.5)",
-                (front, back, today, card_type, deck_id)
+                "INSERT INTO cards (front, back, next_review, interval, repetition, ef, card_type) VALUES (?, ?, ?, 0, 0, 2.5, ?)",
+                (front, back, today, card_type)
             )
+            card_id = cursor.lastrowid
+
+            # Link to deck
+            cursor.execute("INSERT INTO card_decks (card_id, deck_id) VALUES (?, ?)", (card_id, deck_id))
+
             conn.commit()
 
             # Trigger background TTS generation for the new card
@@ -809,6 +964,79 @@ def api_make_sentence():
     return jsonify({'sentence': sentence})
 
 # --- 工具：匯入 & 重置 ---
+
+@app.route('/api/run_merge_scan', methods=['POST'])
+def run_merge_scan():
+    """
+    Scans the entire database for duplicates, averages stats, merges content using AI,
+    and consolidates links to a single master card.
+    """
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+
+        # 1. Find duplicates by 'front'
+        cursor.execute("""
+            SELECT front, COUNT(*) as cnt
+            FROM cards
+            GROUP BY front
+            HAVING cnt > 1
+        """)
+        duplicates = cursor.fetchall()
+
+        merged_count = 0
+
+        for row in duplicates:
+            front = row['front']
+
+            # Fetch all instances for this word
+            cursor.execute("SELECT * FROM cards WHERE front = ?", (front,))
+            cards = cursor.fetchall()
+
+            if not cards:
+                continue
+
+            # Prepare data for merge
+            # We treat the first card as the "Master" which will survive
+            master_card = cards[0]
+            master_id = master_card['id']
+            other_cards = cards[1:]
+
+            # Calculate Average Stats (for ALL cards including master)
+            avg_int, avg_rep, avg_ef, avg_review = calculate_average_stats(cards)
+
+            # Merge content (Back)
+            all_backs = [c['back'] for c in cards]
+            merged_back = ask_ollama_merge(front, all_backs)
+
+            # Update Master Card
+            cursor.execute("""
+                UPDATE cards
+                SET back = ?, interval = ?, repetition = ?, ef = ?, next_review = ?
+                WHERE id = ?
+            """, (merged_back, avg_int, avg_rep, avg_ef, avg_review, master_id))
+
+            # Move Links and Delete others
+            for other in other_cards:
+                other_id = other['id']
+
+                # Fetch all decks the 'other' card belongs to
+                cursor.execute("SELECT deck_id FROM card_decks WHERE card_id = ?", (other_id,))
+                deck_ids = [r['deck_id'] for r in cursor.fetchall()]
+
+                # Link master to these decks (ignore duplicates if master already there)
+                for deck_id in deck_ids:
+                    cursor.execute("INSERT OR IGNORE INTO card_decks (card_id, deck_id) VALUES (?, ?)", (master_id, deck_id))
+
+                # Delete 'other' card
+                # Note: ON DELETE CASCADE in card_decks will clean up the old links automatically
+                cursor.execute("DELETE FROM cards WHERE id = ?", (other_id,))
+
+            merged_count += 1
+            # Commit after each word merge to save progress (optional, but safer for long process)
+            conn.commit()
+
+        return jsonify({'status': 'success', 'merged_count': merged_count})
+
 @app.route('/import/paste', methods=['GET', 'POST'])
 def import_paste():
     with get_db_connection() as conn:
@@ -837,8 +1065,53 @@ def import_paste():
                     if len(row) >= 2 and row[0].strip():
                         front = row[0].strip()
                         back = row[1].strip()
-                        cursor.execute("INSERT INTO cards (front, back, next_review, card_type, deck_id, interval, repetition, ef) VALUES (?, ?, ?, ?, ?, 0, 0, 2.5)", 
-                                     (front, back, today, card_type, deck_id))
+
+                        # Check if card exists (Global Check)
+                        cursor.execute("SELECT * FROM cards WHERE front = ?", (front,))
+                        existing_card = cursor.fetchone()
+
+                        if existing_card:
+                            # Card exists: Update Logic
+                            card_id = existing_card['id']
+
+                            # 1. Link to the new deck (if not already linked)
+                            cursor.execute("INSERT OR IGNORE INTO card_decks (card_id, deck_id) VALUES (?, ?)", (card_id, deck_id))
+
+                            # 2. Merge Content if different
+                            current_back = existing_card['back']
+                            if current_back.strip() != back.strip():
+                                merged_back = ask_ollama_merge(front, [current_back, back])
+                                # Update back content
+                                cursor.execute("UPDATE cards SET back = ? WHERE id = ?", (merged_back, card_id))
+
+                            # 3. Stats Averaging (Existing vs New(0))
+                            # Simulate a "new card" stat object
+                            new_card_stats = {'interval': 0, 'repetition': 0, 'ef': 2.5}
+                            # Current stats
+                            current_stats = {
+                                'interval': existing_card['interval'],
+                                'repetition': existing_card['repetition'],
+                                'ef': existing_card['ef']
+                            }
+
+                            # Calculate average
+                            avg_int, avg_rep, avg_ef, avg_review = calculate_average_stats([current_stats, new_card_stats])
+
+                            cursor.execute("""
+                                UPDATE cards
+                                SET interval = ?, repetition = ?, ef = ?, next_review = ?
+                                WHERE id = ?
+                            """, (avg_int, avg_rep, avg_ef, avg_review, card_id))
+
+                        else:
+                            # Card does not exist: Insert New
+                            cursor.execute("INSERT INTO cards (front, back, next_review, interval, repetition, ef, card_type) VALUES (?, ?, ?, 0, 0, 2.5, ?)",
+                                         (front, back, today, card_type))
+                            card_id = cursor.lastrowid
+
+                            # Link to deck
+                            cursor.execute("INSERT INTO card_decks (card_id, deck_id) VALUES (?, ?)", (card_id, deck_id))
+
                         count += 1
                 
                 conn.commit()
@@ -846,7 +1119,7 @@ def import_paste():
                 # Trigger background TTS generation for imported cards
                 start_background_scan()
 
-                flash(f"✅ 成功從貼上內容匯入 {count} 張新卡片！", "success")
+                flash(f"✅ 成功處理 {count} 張卡片！(含合併與新增)", "success")
                 return redirect(url_for('index'))
 
             except Exception as e:

@@ -83,6 +83,23 @@
     </div>
 
     <!-- Deck List -->
+    <!-- DB Optimization -->
+    <div class="card">
+        <div class="d-flex align-center gap-2 mb-2">
+            <span style="font-size: 1.5rem;">⚙️</span>
+            <h4>資料庫優化</h4>
+        </div>
+        <div class="d-flex align-center justify-between">
+            <p style="color: var(--text-secondary); margin: 0;">
+                掃描整個資料庫，自動合併重複的單字（整合積分與解釋），並清除多餘的記錄。
+            </p>
+            <button id="scanBtn" class="btn btn-warning" onclick="runMergeScan()">
+                開始掃描與合併
+            </button>
+        </div>
+        <div id="scanResult" style="margin-top: 1rem; display: none;" class="text-center p-2 rounded bg-light-green text-green"></div>
+    </div>
+
     <div class="card">
         <h4>📇 牌組列表</h4>
         <div style="margin-top: 1rem;">
@@ -185,6 +202,47 @@ function toggleEdit(type, id) {
         displayDiv.style.display = 'none';
         editDiv.style.display = 'block';
     }
+}
+
+function runMergeScan() {
+    if (!confirm("這將會掃描所有卡片，合併重複的單字並整合內容。確定要執行嗎？")) {
+        return;
+    }
+
+    const btn = document.getElementById('scanBtn');
+    const resultDiv = document.getElementById('scanResult');
+
+    btn.disabled = true;
+    btn.innerText = "掃描中...";
+    resultDiv.style.display = 'none';
+
+    fetch('/api/run_merge_scan', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token() }}'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerText = "開始掃描與合併";
+
+        resultDiv.style.display = 'block';
+        if (data.status === 'success') {
+            resultDiv.innerText = `✅ 掃描完成！共合併了 ${data.merged_count} 個重複單字。`;
+            if (data.merged_count > 0) {
+                setTimeout(() => location.reload(), 2000);
+            }
+        } else {
+            resultDiv.innerText = "⚠️ 掃描發生錯誤，請查看日誌。";
+        }
+    })
+    .catch(error => {
+        btn.disabled = false;
+        btn.innerText = "開始掃描與合併";
+        console.error('Error:', error);
+        alert("執行失敗，請檢查網路連線。");
+    });
 }
 </script>
 {% endblock %}

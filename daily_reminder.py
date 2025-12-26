@@ -28,9 +28,10 @@ def check():
             SELECT
                 f.name as folder_name,
                 d.name as deck_name,
-                COUNT(c.id) as count
+                COUNT(DISTINCT c.id) as count
             FROM cards c
-            JOIN decks d ON c.deck_id = d.id
+            JOIN card_decks cd ON c.id = cd.card_id
+            JOIN decks d ON cd.deck_id = d.id
             JOIN deck_folders df ON d.id = df.deck_id
             JOIN folders f ON df.folder_id = f.id
             WHERE c.next_review <= ?
