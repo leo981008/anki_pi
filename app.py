@@ -130,10 +130,24 @@ def init_db():
                 )
             ''')
 
-                # 2. Migrate data
+                # 2. Migrate data (with Orphan Check)
                 cursor.execute("SELECT id, deck_id FROM cards WHERE deck_id IS NOT NULL")
-                relations = cursor.fetchall()
-                cursor.executemany("INSERT OR IGNORE INTO card_decks (card_id, deck_id) VALUES (?, ?)", relations)
+                cards_to_migrate = cursor.fetchall()
+
+                # Get valid deck IDs
+                cursor.execute("SELECT id FROM decks")
+                valid_deck_ids = set(row['id'] for row in cursor.fetchall())
+
+                valid_links = []
+                for card in cards_to_migrate:
+                    if card['deck_id'] in valid_deck_ids:
+                        valid_links.append((card['id'], card['deck_id']))
+                    else:
+                        print(f"Skipping orphaned card {card['id']} linked to missing deck {card['deck_id']}")
+
+                if valid_links:
+                    cursor.executemany("INSERT OR IGNORE INTO card_decks (card_id, deck_id) VALUES (?, ?)", valid_links)
+                    print(f"Migrated {len(valid_links)} card-deck links.")
 
                 # 3. Recreate cards table without deck_id
                 cursor.execute('''
@@ -1001,6 +1015,11 @@ def run_merge_scan():
             master_id = master_card['id']
             other_cards = cards[1:]
 
+            # Check if ANY card is 'spell', if so, upgrade master to 'spell'
+            # (Spell is harder/more strict than recognize, so it takes precedence)
+            any_spell = any(c['card_type'] == 'spell' for c in cards)
+            final_card_type = 'spell' if any_spell else master_card['card_type']
+
             # Calculate Average Stats (for ALL cards including master)
             avg_int, avg_rep, avg_ef, avg_review = calculate_average_stats(cards)
 
@@ -1011,9 +1030,9 @@ def run_merge_scan():
             # Update Master Card
             cursor.execute("""
                 UPDATE cards
-                SET back = ?, interval = ?, repetition = ?, ef = ?, next_review = ?
+                SET back = ?, interval = ?, repetition = ?, ef = ?, next_review = ?, card_type = ?
                 WHERE id = ?
-            """, (merged_back, avg_int, avg_rep, avg_ef, avg_review, master_id))
+            """, (merged_back, avg_int, avg_rep, avg_ef, avg_review, final_card_type, master_id))
 
             # Move Links and Delete others
             for other in other_cards:
@@ -1077,12 +1096,21 @@ def import_paste():
                             # 1. Link to the new deck (if not already linked)
                             cursor.execute("INSERT OR IGNORE INTO card_decks (card_id, deck_id) VALUES (?, ?)", (card_id, deck_id))
 
-                            # 2. Merge Content if different
+                            # 2. Merge Content and Logic
                             current_back = existing_card['back']
+
+                            # Upgrade to 'spell' if the new imported card is 'spell'
+                            new_card_type = existing_card['card_type']
+                            if card_type == 'spell' and existing_card['card_type'] == 'recognize':
+                                new_card_type = 'spell'
+
+                            # Merge back content if different
+                            merged_back = current_back
                             if current_back.strip() != back.strip():
                                 merged_back = ask_ollama_merge(front, [current_back, back])
-                                # Update back content
-                                cursor.execute("UPDATE cards SET back = ? WHERE id = ?", (merged_back, card_id))
+
+                            # Update back and type
+                            cursor.execute("UPDATE cards SET back = ?, card_type = ? WHERE id = ?", (merged_back, new_card_type, card_id))
 
                             # 3. Stats Averaging (Existing vs New(0))
                             # Simulate a "new card" stat object
