@@ -15,6 +15,7 @@ from collections import defaultdict
 from gtts import gTTS
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash, send_file, send_from_directory
 from datetime import datetime, timedelta
+from collections import defaultdict
 from config import DB_NAME, MODEL_NAME, OLLAMA_API_URL, SECRET_KEY
 from flask_wtf.csrf import CSRFProtect
 
@@ -120,6 +121,8 @@ def init_db():
             if 'deck_id' in card_columns:
                 print("Migrating cards to Many-to-Many schema with merge logic...")
 
+                # IMPORTANT: Commit current transaction (if any) to allow changing Foreign Key settings
+                conn.commit()
                 # IMPORTANT: Disable Foreign Keys during migration to prevent CASCADE deletes
                 cursor.execute("PRAGMA foreign_keys = OFF")
 
