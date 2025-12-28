@@ -118,38 +118,37 @@ def init_db():
             card_columns = [column[1] for column in cursor.fetchall()]
 
             if 'deck_id' in card_columns:
-                print("Migrating cards to Many-to-Many schema...")
-                # 1. Create junction table
+                print("Migrating cards to Many-to-Many schema with merge logic...")
+
+                # IMPORTANT: Disable Foreign Keys during migration to prevent CASCADE deletes
+                cursor.execute("PRAGMA foreign_keys = OFF")
+
+                # 1. Create junction table (if not exists)
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS card_decks (
-                    card_id INTEGER NOT NULL,
-                    deck_id INTEGER NOT NULL,
-                    PRIMARY KEY (card_id, deck_id),
-                    FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE CASCADE,
-                    FOREIGN KEY(deck_id) REFERENCES decks(id) ON DELETE CASCADE
-                )
-            ''')
+                        card_id INTEGER NOT NULL,
+                        deck_id INTEGER NOT NULL,
+                        PRIMARY KEY (card_id, deck_id),
+                        FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE CASCADE,
+                        FOREIGN KEY(deck_id) REFERENCES decks(id) ON DELETE CASCADE
+                    )
+                ''')
 
-                # 2. Migrate data (with Orphan Check)
-                cursor.execute("SELECT id, deck_id FROM cards WHERE deck_id IS NOT NULL")
-                cards_to_migrate = cursor.fetchall()
+                # 2. Fetch all old cards
+                if 'card_type' in card_columns:
+                    cursor.execute("SELECT * FROM cards")
+                else:
+                    # If older schema without card_type, treat as recognize
+                    cursor.execute("SELECT *, 'recognize' as card_type FROM cards")
 
-                # Get valid deck IDs
-                cursor.execute("SELECT id FROM decks")
-                valid_deck_ids = set(row['id'] for row in cursor.fetchall())
+                old_cards = cursor.fetchall()
 
-                valid_links = []
-                for card in cards_to_migrate:
-                    if card['deck_id'] in valid_deck_ids:
-                        valid_links.append((card['id'], card['deck_id']))
-                    else:
-                        print(f"Skipping orphaned card {card['id']} linked to missing deck {card['deck_id']}")
+                # 3. Group by 'front' (English word) to identify duplicates
+                grouped_cards = defaultdict(list)
+                for card in old_cards:
+                    grouped_cards[card['front'].strip()].append(dict(card))
 
-                if valid_links:
-                    cursor.executemany("INSERT OR IGNORE INTO card_decks (card_id, deck_id) VALUES (?, ?)", valid_links)
-                    print(f"Migrated {len(valid_links)} card-deck links.")
-
-                # 3. Recreate cards table without deck_id
+                # 4. Prepare New Table
                 cursor.execute('''
                     CREATE TABLE cards_new (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -163,21 +162,79 @@ def init_db():
                     )
                 ''')
 
-                # Copy data
-                if 'card_type' in card_columns:
-                    cursor.execute("""
-                        INSERT INTO cards_new (id, front, back, next_review, interval, repetition, ef, card_type)
-                        SELECT id, front, back, next_review, interval, repetition, ef, card_type FROM cards
-                    """)
-                else:
-                    cursor.execute("""
-                        INSERT INTO cards_new (id, front, back, next_review, interval, repetition, ef)
-                        SELECT id, front, back, next_review, interval, repetition, ef FROM cards
-                    """)
+                # 5. Process Groups: Merge & Insert
+                new_links = []
 
+                # Get valid deck IDs to avoid orphaned links
+                cursor.execute("SELECT id FROM decks")
+                valid_deck_ids = set(row['id'] for row in cursor.fetchall())
+
+                for front, card_group in grouped_cards.items():
+                    # A. Determine Type (Spell takes precedence)
+                    is_spell = any(c.get('card_type') == 'spell' for c in card_group)
+                    final_type = 'spell' if is_spell else 'recognize'
+
+                    # B. Determine Content (Simple concatenation of unique backs)
+                    unique_backs = []
+                    seen_backs = set()
+
+                    # Priority: Put Spell card's back first if it exists
+                    sorted_group = sorted(card_group, key=lambda x: 0 if x.get('card_type') == 'spell' else 1)
+
+                    for c in sorted_group:
+                        b = c['back'].strip()
+                        if b and b not in seen_backs:
+                            unique_backs.append(b)
+                            seen_backs.add(b)
+
+                    final_back = "\n\n".join(unique_backs)
+
+                    # C. Calculate Average Stats
+                    total_interval = sum(c['interval'] for c in card_group)
+                    total_rep = sum(c['repetition'] for c in card_group)
+                    total_ef = sum(c['ef'] for c in card_group)
+                    count = len(card_group)
+
+                    avg_interval = int(total_interval / count)
+                    avg_rep = int(total_rep / count)
+                    avg_ef = total_ef / count
+
+                    # Next review logic
+                    if count == 1:
+                        # For single cards, preserve the original due date exactly
+                        next_review = card_group[0]['next_review']
+                    else:
+                        # For merged cards, calculate new due date based on average interval
+                        next_review = datetime.now().date() + timedelta(days=avg_interval)
+
+                    # D. Insert into New Table
+                    cursor.execute("""
+                        INSERT INTO cards_new (front, back, next_review, interval, repetition, ef, card_type)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (front, final_back, next_review, avg_interval, avg_rep, avg_ef, final_type))
+
+                    new_card_id = cursor.lastrowid
+
+                    # E. Collect Links
+                    for c in card_group:
+                        if c['deck_id'] and c['deck_id'] in valid_deck_ids:
+                            new_links.append((new_card_id, c['deck_id']))
+
+                # 6. Insert Links
+                if new_links:
+                    # distinct links only
+                    unique_links = list(set(new_links))
+                    cursor.executemany("INSERT OR IGNORE INTO card_decks (card_id, deck_id) VALUES (?, ?)", unique_links)
+                    print(f"Migrated and merged {len(unique_links)} card-deck links.")
+
+                # 7. Finalize Swap
                 cursor.execute("DROP TABLE cards")
                 cursor.execute("ALTER TABLE cards_new RENAME TO cards")
-                print("Cards table migrated successfully.")
+
+                # Re-enable Foreign Keys
+                cursor.execute("PRAGMA foreign_keys = ON")
+
+                print("Cards table migrated and merged successfully.")
 
         # Ensure card_decks and cards exist
         cursor.execute('''
