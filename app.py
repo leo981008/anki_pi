@@ -260,6 +260,11 @@ def init_db():
             )
         ''')
 
+        # Add indexes for performance optimization
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_next_review ON cards(next_review)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_card_decks_deck_id ON card_decks(deck_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_card_decks_card_id ON card_decks(card_id)")
+
         conn.commit()
 
 # --- SM-2 記憶演算法 ---
