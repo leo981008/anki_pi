@@ -16,14 +16,7 @@ def check():
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
 
-        # 1. Get Total Due Count (Unique Cards)
-        c.execute("SELECT COUNT(*) FROM cards WHERE next_review <= ?", (today,))
-        total_count = c.fetchone()[0]
-    
-        if total_count == 0:
-            return
-
-        # 2. Get Due Counts Grouped by Folder -> Deck
+        # Get Due Counts Grouped by Folder -> Deck
         query = """
             SELECT
                 f.name as folder_name,
@@ -41,6 +34,12 @@ def check():
 
         c.execute(query, (today,))
         rows = c.fetchall()
+
+        # Calculate Total Count (Sum of all deck counts)
+        total_count = sum(row['count'] for row in rows)
+
+        if total_count == 0:
+            return
 
         # Process results
         folder_data = defaultdict(dict)
