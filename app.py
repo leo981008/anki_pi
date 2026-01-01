@@ -666,7 +666,12 @@ def edit_card(card_id):
         if not card:
             return "Card not found", 404
 
-    return render_template('edit_card.html', card=card)
+        # Fetch a linked deck for the "Cancel" button redirection
+        cursor.execute("SELECT deck_id FROM card_decks WHERE card_id = ? LIMIT 1", (card_id,))
+        deck_row = cursor.fetchone()
+        deck_id = deck_row['deck_id'] if deck_row else None
+
+    return render_template('edit_card.html', card=card, deck_id=deck_id)
 
 @app.route('/card/<int:card_id>/delete', methods=['POST'])
 def delete_card(card_id):

@@ -21,7 +21,11 @@
 
         <div style="display: flex; gap: 10px; margin-top: 20px;">
             <button type="submit" class="btn btn-green">💾 儲存變更</button>
-            <a href="{{ url_for('view_deck_cards', deck_id=card.deck_id) }}" class="btn btn-secondary">取消</a>
+            {% if deck_id %}
+                <a href="{{ url_for('view_deck_cards', deck_id=deck_id) }}" class="btn btn-secondary">取消</a>
+            {% else %}
+                <a href="{{ url_for('index') }}" class="btn btn-secondary">取消</a>
+            {% endif %}
         </div>
     </form>
 </div>
