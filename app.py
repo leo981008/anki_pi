@@ -17,6 +17,7 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify, f
 from datetime import datetime, timedelta
 from config import DB_NAME, MODEL_NAME, OLLAMA_API_URL, SECRET_KEY
 from flask_wtf.csrf import CSRFProtect
+from backup_manager import backup_database
 
 app = Flask(__name__)
 # 從環境變數讀取 SECRET_KEY，如果找不到則使用一個預設值 (僅供開發)
@@ -1047,6 +1048,12 @@ def run_merge_scan():
     Scans the entire database for duplicates, averages stats, merges content using AI,
     and consolidates links to a single master card.
     """
+    # Create a backup before starting the potentially destructive merge process
+    print("Initiating backup before merge scan...")
+    backup_success = backup_database(reason="merge_scan")
+    if not backup_success:
+        print("Backup failed, but proceeding with merge scan (check logs).")
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
