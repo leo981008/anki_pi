@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pi Anki</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap">
+    <script>
+        // Apply theme immediately to prevent FOUC (Flash of Unstyled Content)
+        (function() {
+            const theme = localStorage.getItem('theme');
+            if (theme === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
     <style>
         /* CSS Variables for theming */
         :root {
@@ -370,13 +379,10 @@
         (function() {
             const toggleBtn = document.getElementById('theme-toggle-btn');
             if (!toggleBtn) return;
-            const currentTheme = localStorage.getItem('theme');
 
-            if (currentTheme) {
-                document.documentElement.setAttribute('data-theme', currentTheme);
-                if (currentTheme === 'dark') {
-                    toggleBtn.textContent = '🌙';
-                }
+            // Initialize button icon based on current theme (already applied in head)
+            if (document.documentElement.getAttribute('data-theme') === 'dark') {
+                toggleBtn.textContent = '🌙';
             }
 
             toggleBtn.addEventListener('click', () => {
