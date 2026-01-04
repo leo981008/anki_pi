@@ -17,6 +17,7 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify, f
 from datetime import datetime, timedelta
 from config import DB_NAME, MODEL_NAME, OLLAMA_API_URL, SECRET_KEY
 from flask_wtf.csrf import CSRFProtect
+from backup_manager import backup_database
 
 app = Flask(__name__)
 # 從環境變數讀取 SECRET_KEY，如果找不到則使用一個預設值 (僅供開發)
@@ -665,7 +666,12 @@ def edit_card(card_id):
         if not card:
             return "Card not found", 404
 
-    return render_template('edit_card.html', card=card)
+        # Fetch a linked deck for the "Cancel" button redirection
+        cursor.execute("SELECT deck_id FROM card_decks WHERE card_id = ? LIMIT 1", (card_id,))
+        deck_row = cursor.fetchone()
+        deck_id = deck_row['deck_id'] if deck_row else None
+
+    return render_template('edit_card.html', card=card, deck_id=deck_id)
 
 @app.route('/card/<int:card_id>/delete', methods=['POST'])
 def delete_card(card_id):
@@ -1047,6 +1053,12 @@ def run_merge_scan():
     Scans the entire database for duplicates, averages stats, merges content using AI,
     and consolidates links to a single master card.
     """
+    # Create a backup before starting the potentially destructive merge process
+    print("Initiating backup before merge scan...")
+    backup_success = backup_database(reason="merge_scan")
+    if not backup_success:
+        print("Backup failed, but proceeding with merge scan (check logs).")
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
