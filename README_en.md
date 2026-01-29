@@ -9,10 +9,16 @@ This is a lightweight Anki-like web application based on Flask and the SM-2 algo
 - **📚 Learning Modes:**
     - **Traditional Mode:** Standard flashcard learning supporting "Recognize Only" and "Need to Spell" card types.
     - **AI Assistance:** During study, you can invoke AI (integrated with [Ollama](https://ollama.ai/)) to generate practical sentences for the current word or take random AI quizzes.
+- **🛠️ Database Optimization (Merge Duplicates):**
+    - Automatically merge duplicate cards.
+    - Uses AI to intelligently combine card definitions while preserving the average of your learning progress.
 - **📂 Convenient Card Management:**
     - Manually add new flashcards.
     - Batch import cards via copy-paste CSV content.
-    - One-click reset of all learning progress.
+    - One-click reset of all learning progress or delete all cards.
+- **🛡️ Security & Backup:**
+    - **Auto Backup:** The system automatically backs up the database to the `backups/` directory during every update.
+    - **One-Click Restore:** Provides restore scripts (`restore.sh` / `restore.ps1`) to easily revert the database to a previous state.
 - **🔔 Discord Notifications:**
     - Daily reminders for cards due for review.
 - **🎨 Modern Interface:**
@@ -109,14 +115,32 @@ When a new version is available, use the update script to ensure database and de
 ```bash
 ./update.sh
 ```
-This script automatically executes `git pull`, updates Python dependencies, and restarts the service.
+This script will automatically:
+1. Backup the current database to `backups/`.
+2. Execute `git pull` to fetch the latest code.
+3. Update Python dependencies.
+4. Restart the service.
 
 #### 🪟 Windows
 
 1.  Close any running Anki Pi window.
 2.  Right-click `update.ps1` and select **"Run with PowerShell"**.
-3.  The script will automatically pull the latest code and update dependencies.
+3.  The script will automatically backup the database, pull the latest code, and update dependencies.
 4.  After the update is complete, restart the app using the Desktop shortcut.
+
+### 3. Restore
+
+If issues arise after an update, or you want to revert to a previous database state:
+
+#### 🐧 Linux / Raspberry Pi
+```bash
+./restore.sh
+```
+
+#### 🪟 Windows
+Right-click `restore.ps1` and select **"Run with PowerShell"**.
+
+The system will list available backup files for you to choose from.
 
 ### Manual Installation (Advanced Users)
 
