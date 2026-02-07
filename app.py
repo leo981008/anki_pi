@@ -952,6 +952,81 @@ def api_tts():
         return f"TTS Error: {str(e)}", 500
 
 
+@app.route('/api/run_merge_scan', methods=['POST'])
+def run_merge_scan():
+    merged_count = 0
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+
+        # 1. Fetch all cards
+        cursor.execute("SELECT * FROM cards")
+        all_cards = cursor.fetchall()
+
+        # 2. Group by front
+        grouped_cards = defaultdict(list)
+        for card in all_cards:
+            grouped_cards[card['front'].strip()].append(dict(card))
+
+        # 3. Process groups
+        for front, group in grouped_cards.items():
+            if len(group) > 1:
+                merged_count += 1
+
+                # Determine Type (Spell takes precedence)
+                is_spell = any(c['card_type'] == 'spell' for c in group)
+                final_type = 'spell' if is_spell else 'recognize'
+
+                # Master card: pick the one with the smallest ID (oldest)
+                group.sort(key=lambda x: x['id'])
+                master_card = group[0]
+                duplicates = group[1:]
+
+                # Merge Backs
+                unique_backs = []
+                seen_backs = set()
+
+                # Sort by type for content merging (spell first)
+                sorted_group_for_back = sorted(group, key=lambda x: 0 if x.get('card_type') == 'spell' else 1)
+
+                for c in sorted_group_for_back:
+                    b = c['back'].strip()
+                    if b and b not in seen_backs:
+                        unique_backs.append(b)
+                        seen_backs.add(b)
+
+                final_back = "\n\n".join(unique_backs)
+
+                # Calculate Average Stats
+                avg_interval, avg_rep, avg_ef, next_review = calculate_average_stats(group)
+
+                # Update Master Card
+                cursor.execute("""
+                    UPDATE cards
+                    SET back = ?, card_type = ?, interval = ?, repetition = ?, ef = ?, next_review = ?
+                    WHERE id = ?
+                """, (final_back, final_type, avg_interval, avg_rep, avg_ef, next_review, master_card['id']))
+
+                # Re-link Decks
+                # Get all deck IDs for duplicates and link them to master
+                dup_ids = [d['id'] for d in duplicates]
+                if dup_ids:
+                    placeholders = ','.join('?' for _ in dup_ids)
+                    cursor.execute(f"SELECT deck_id FROM card_decks WHERE card_id IN ({placeholders})", dup_ids)
+                    deck_rows = cursor.fetchall()
+
+                    for row in deck_rows:
+                        deck_id = row['deck_id']
+                        # Insert link for master card (ignore if already exists)
+                        cursor.execute("INSERT OR IGNORE INTO card_decks (card_id, deck_id) VALUES (?, ?)", (master_card['id'], deck_id))
+
+                    # Delete duplicates (CASCADE will handle card_decks)
+                    cursor.execute(f"DELETE FROM cards WHERE id IN ({placeholders})", dup_ids)
+
+        conn.commit()
+
+    return jsonify({'status': 'success', 'merged_count': merged_count})
+
+
 # --- 工具：匯入 & 重置 ---
 
 @app.route('/import/paste', methods=['GET', 'POST'])
