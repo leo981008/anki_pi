@@ -149,6 +149,22 @@
         </div>
     </div>
 
+    <!-- Danger Zone -->
+    <div class="card mt-2" style="border-left: 5px solid var(--red-color);">
+        <h3 style="color: var(--red-color);">⚠️ 危險區域</h3>
+        <p>此操作將會重置所有卡片的學習進度，且無法復原。</p>
+        <div style="display: flex; gap: 10px;">
+            <form action="/reset_progress" method="POST" onsubmit="return confirm('確定要重置所有進度嗎？');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-special">重置進度</button>
+            </form>
+            <form action="/delete_all_cards" method="POST" onsubmit="return confirm('【極度危險】此操作將永久刪除所有卡片，且無法復原！確定要繼續嗎？');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-red">刪除所有卡片</button>
+            </form>
+        </div>
+    </div>
+
 <style>
     .list-item {
         padding: 15px;
