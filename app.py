@@ -852,11 +852,6 @@ def get_tts_filename(text):
     hash_object = hashlib.md5(text.encode())
     return f"{hash_object.hexdigest()}.wav"
 
-def get_legacy_tts_filename(text):
-    """Generate legacy MP3 filename for backwards compatibility with old cache."""
-    hash_object = hashlib.md5(text.encode())
-    return f"{hash_object.hexdigest()}.mp3"
-
 def generate_tts_file(text, filepath):
     """Generates TTS audio file using Piper TTS."""
     if piper_voice is None:
@@ -879,11 +874,7 @@ def process_tts_list(texts):
         filename = get_tts_filename(text)
         filepath = os.path.join(TTS_DIR, filename)
 
-        # Also check legacy .mp3 file — if it exists, skip generation
-        legacy_filename = get_legacy_tts_filename(text)
-        legacy_filepath = os.path.join(TTS_DIR, legacy_filename)
-
-        if not os.path.exists(filepath) and not os.path.exists(legacy_filepath):
+        if not os.path.exists(filepath):
             try:
                 generate_tts_file(text, filepath)
             except Exception as e:
@@ -928,6 +919,26 @@ def start_specific_tts(texts):
     thread.daemon = True
     thread.start()
 
+def cleanup_legacy_audio():
+    """Removes any old .mp3 files from the TTS directory."""
+    print("Checking for legacy .mp3 files to clean up...")
+    count = 0
+    try:
+        for filename in os.listdir(TTS_DIR):
+            if filename.endswith('.mp3'):
+                filepath = os.path.join(TTS_DIR, filename)
+                try:
+                    os.remove(filepath)
+                    count += 1
+                except Exception as e:
+                    print(f"Error removing {filepath}: {e}")
+        if count > 0:
+            print(f"Cleaned up {count} legacy .mp3 files.")
+        else:
+            print("No legacy .mp3 files found.")
+    except Exception as e:
+        print(f"Error during legacy audio cleanup: {e}")
+
 @app.route('/api/tts', methods=['GET'])
 def api_tts():
     text = request.args.get('text')
@@ -938,19 +949,13 @@ def api_tts():
     if len(text) > 500:
         return "Text too long (max 500 characters)", 400
 
-    # 1. Check for legacy .mp3 cache first (backwards compatibility)
-    legacy_filename = get_legacy_tts_filename(text)
-    legacy_filepath = os.path.join(TTS_DIR, legacy_filename)
-    if os.path.exists(legacy_filepath):
-        return send_from_directory(TTS_DIR, legacy_filename)
-
-    # 2. Check for new .wav cache
+    # 1. Check for new .wav cache
     filename = get_tts_filename(text)
     filepath = os.path.join(TTS_DIR, filename)
     if os.path.exists(filepath):
         return send_from_directory(TTS_DIR, filename)
 
-    # 3. Generate with Piper TTS
+    # 2. Generate with Piper TTS
     try:
         success = generate_tts_file(text, filepath)
         if success and os.path.exists(filepath):
@@ -1172,6 +1177,8 @@ def delete_all_cards():
 
 if __name__ == '__main__':
     init_db()
+    # Clean up old mp3 files before scanning
+    cleanup_legacy_audio()
     # Start TTS generation on startup to catch any missing files
     start_background_scan()
     # host='0.0.0.0' 讓區域網路內其他裝置可以連線
