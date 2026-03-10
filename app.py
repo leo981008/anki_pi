@@ -22,6 +22,20 @@ app = Flask(__name__)
 app.secret_key = SECRET_KEY
 csrf = CSRFProtect(app)
 
+@app.context_processor
+def inject_settings():
+    """Inject settings into all templates."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT value FROM settings WHERE key = 'tts_speed'")
+            row = cursor.fetchone()
+            tts_speed = float(row['value']) if row else 1.0
+        except Exception:
+            tts_speed = 1.0
+    return dict(global_tts_speed=tts_speed)
+
+
 TTS_DIR = os.path.join(app.static_folder, 'tts')
 os.makedirs(TTS_DIR, exist_ok=True)
 
@@ -245,6 +259,17 @@ def init_db():
                 cursor.execute("PRAGMA foreign_keys = ON")
 
                 print("Cards table migrated and merged successfully.")
+
+        # Ensure settings table exists for global app configurations
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        ''')
+
+        # Initialize default settings if they don't exist
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('tts_speed', '1.0')")
 
         # Ensure card_decks and cards exist
         cursor.execute('''
@@ -938,6 +963,38 @@ def cleanup_legacy_audio():
             print("No legacy .mp3 files found.")
     except Exception as e:
         print(f"Error during legacy audio cleanup: {e}")
+
+@app.route('/api/settings/tts_speed', methods=['GET', 'POST'])
+def api_tts_speed():
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+
+        if request.method == 'POST':
+            # Update speed
+            data = request.json
+            new_speed = data.get('speed')
+            if not new_speed:
+                return jsonify({'error': 'Speed not provided'}), 400
+
+            try:
+                # Ensure it's a valid float
+                float(new_speed)
+                cursor.execute("""
+                    INSERT INTO settings (key, value)
+                    VALUES ('tts_speed', ?)
+                    ON CONFLICT(key) DO UPDATE SET value = ?
+                """, (str(new_speed), str(new_speed)))
+                conn.commit()
+                return jsonify({'status': 'success', 'speed': new_speed})
+            except ValueError:
+                return jsonify({'error': 'Invalid speed value'}), 400
+
+        # GET request
+        cursor.execute("SELECT value FROM settings WHERE key = 'tts_speed'")
+        row = cursor.fetchone()
+        speed = row['value'] if row else '1.0'
+        return jsonify({'status': 'success', 'speed': speed})
+
 
 @app.route('/api/tts', methods=['GET'])
 def api_tts():
