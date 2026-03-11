@@ -877,14 +877,19 @@ def get_tts_filename(text):
     hash_object = hashlib.md5(text.encode())
     return f"{hash_object.hexdigest()}.wav"
 
+from piper.config import SynthesisConfig
+
 def generate_tts_file(text, filepath):
     """Generates TTS audio file using Piper TTS."""
     if piper_voice is None:
         print(f"Piper voice not loaded, cannot generate TTS for '{text}'")
         return False
     try:
+        # Default piper speed is often too fast for language learning.
+        # length_scale > 1.0 slows down the speech (e.g., 1.2 is 20% slower)
+        config = SynthesisConfig(length_scale=1.2)
         with wave.open(filepath, 'wb') as wav_file:
-            piper_voice.synthesize_wav(text, wav_file)
+            piper_voice.synthesize_wav(text, wav_file, syn_config=config)
         return True
     except Exception as e:
         print(f"Piper TTS generation failed for '{text}': {e}")
