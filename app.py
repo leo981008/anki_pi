@@ -55,6 +55,11 @@ def get_db_connection():
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # Performance Optimizations
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA temp_store = MEMORY")
+    conn.execute("PRAGMA mmap_size = 30000000000")
     return conn
 
 def init_db():
@@ -299,6 +304,9 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_next_review ON cards(next_review)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_card_decks_deck_id ON card_decks(deck_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_card_decks_card_id ON card_decks(card_id)")
+
+        # Composite index for optimization of the most common query: fetch next card
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_card_decks_deck_card ON card_decks(deck_id, card_id)")
 
         conn.commit()
 
