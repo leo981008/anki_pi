@@ -44,16 +44,6 @@ echo -e "${YELLOW}[INFO] 正在安裝 Python 套件...${NC}"
 ./venv/bin/pip install --upgrade pip
 ./venv/bin/pip install -r requirements.txt
 
-# 3.5 下載 Piper TTS 語音模型
-echo -e "${YELLOW}[INFO] 正在下載 Piper TTS 語音模型...${NC}"
-mkdir -p models
-if [ ! -f "models/en_US-lessac-medium.onnx" ]; then
-    ./venv/bin/python -m piper.download_voices en_US-lessac-medium --data-dir models
-    echo -e "${GREEN}語音模型下載完成。${NC}"
-else
-    echo -e "${YELLOW}[INFO] 語音模型已存在，跳過下載。${NC}"
-fi
-
 # 4. 設定環境變數 (.env)
 if [ -f ".env" ]; then
     echo -e "${YELLOW}[INFO] .env 檔案已存在，跳過設定。${NC}"

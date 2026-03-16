@@ -61,16 +61,6 @@ if [ -d "venv" ]; then
     ./venv/bin/pip install --upgrade pip
     ./venv/bin/pip install -r requirements.txt
 
-    # 2.5 確保 Piper TTS 語音模型存在
-    echo -e "${YELLOW}[INFO] 檢查 Piper TTS 語音模型...${NC}"
-    mkdir -p models
-    if [ ! -f "models/en_US-lessac-medium.onnx" ]; then
-        echo -e "${YELLOW}[INFO] 正在下載 Piper TTS 語音模型...${NC}"
-        ./venv/bin/python -m piper.download_voices en_US-lessac-medium --data-dir models
-        echo -e "${GREEN}語音模型下載完成。${NC}"
-    else
-        echo -e "${YELLOW}[INFO] 語音模型已存在。${NC}"
-    fi
 else
     echo -e "${RED}錯誤: 找不到虛擬環境 (venv)。請確認安裝是否完整。${NC}"
     exit 1
