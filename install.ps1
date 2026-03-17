@@ -44,18 +44,6 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# 3.5 下載 Piper TTS 語音模型
-Write-Host "[INFO] 正在下載 Piper TTS 語音模型..." -ForegroundColor Yellow
-if (-not (Test-Path "models")) {
-    New-Item -ItemType Directory -Force -Path "models" | Out-Null
-}
-if (-not (Test-Path "models\en_US-lessac-medium.onnx")) {
-    & ".\venv\Scripts\python.exe" -m piper.download_voices en_US-lessac-medium --data-dir models
-    Write-Host "語音模型下載完成。" -ForegroundColor Green
-} else {
-    Write-Host "[INFO] 語音模型已存在，跳過下載。" -ForegroundColor Yellow
-}
-
 # 4. 設定環境變數 (.env)
 if (-not (Test-Path ".env")) {
     Write-Host "=== 設定環境變數 ===" -ForegroundColor Green

@@ -62,19 +62,6 @@ try {
     exit 1
 }
 
-# 2.5 確保 Piper TTS 語音模型存在
-Write-Host "[INFO] 檢查 Piper TTS 語音模型..." -ForegroundColor Yellow
-if (-not (Test-Path "models")) {
-    New-Item -ItemType Directory -Force -Path "models" | Out-Null
-}
-if (-not (Test-Path "models\en_US-lessac-medium.onnx")) {
-    Write-Host "[INFO] 正在下載 Piper TTS 語音模型..." -ForegroundColor Yellow
-    & ".\venv\Scripts\python.exe" -m piper.download_voices en_US-lessac-medium --data-dir models
-    Write-Host "語音模型下載完成。" -ForegroundColor Green
-} else {
-    Write-Host "[INFO] 語音模型已存在。" -ForegroundColor Yellow
-}
-
 # 3. 完成
 Write-Host "=== 更新完成！ ===" -ForegroundColor Green
 Write-Host "如果應用程式正在執行中，請手動關閉並重新啟動以套用更新。"

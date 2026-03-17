@@ -1,5 +1,4 @@
 flask
 requests
 python-dotenv
-piper-tts
 Flask-WTF

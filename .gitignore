@@ -148,10 +148,3 @@ cython_debug/
 i m p o r t e d _ f i l e s /  
 *.db  
 
-# TTS Audio Files
-*.mp3
-*.wav
-static/tts/
-
-# Piper TTS Models
-models/

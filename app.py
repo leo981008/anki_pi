@@ -10,7 +10,6 @@ import threading
 import uuid
 import hashlib
 from collections import defaultdict
-from piper import PiperVoice
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash, send_file, send_from_directory
 from datetime import datetime, timedelta
 from config import DB_NAME, SECRET_KEY
@@ -36,19 +35,6 @@ def inject_settings():
     return dict(global_tts_speed=tts_speed)
 
 
-TTS_DIR = os.path.join(app.static_folder, 'tts')
-os.makedirs(TTS_DIR, exist_ok=True)
-
-# --- Piper TTS Voice 初始化 ---
-MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models')
-MODEL_PATH = os.path.join(MODEL_DIR, 'en_US-lessac-medium.onnx')
-piper_voice = None
-if os.path.exists(MODEL_PATH):
-    piper_voice = PiperVoice.load(MODEL_PATH)
-    print(f"Piper TTS voice loaded: {MODEL_PATH}")
-else:
-    print(f"WARNING: Piper model not found at {MODEL_PATH}. TTS will be unavailable.")
-    print(f"Please run: python -m piper.download_voices en_US-lessac-medium --data-dir {MODEL_DIR}")
 
 # --- 資料庫初始化 ---
 def get_db_connection():
@@ -795,7 +781,6 @@ def add_card():
             conn.commit()
 
             # Trigger background TTS generation for the new card
-            start_specific_tts([front, back])
 
             flash(f"成功新增卡片: {front}", "success")
             return redirect(url_for('add_card'))
@@ -890,168 +875,6 @@ def answer(card_id, quality):
         return redirect(url_for('index'))
 
 # TTS Lock to prevent concurrency issues if multiple requests come in
-tts_lock = threading.Lock()
-
-def get_tts_filename(text):
-    """Generate a consistent filename based on MD5 hash of the text."""
-    hash_object = hashlib.md5(text.encode())
-    return f"{hash_object.hexdigest()}.wav"
-
-from piper.config import SynthesisConfig
-
-def generate_tts_file(text, filepath):
-    """Generates TTS audio file using Piper TTS."""
-    if piper_voice is None:
-        print(f"Piper voice not loaded, cannot generate TTS for '{text}'")
-        return False
-    try:
-        # Default piper speed is often too fast for language learning.
-        # length_scale > 1.0 slows down the speech (e.g., 1.2 is 20% slower)
-        config = SynthesisConfig(length_scale=1.2)
-        with wave.open(filepath, 'wb') as wav_file:
-            piper_voice.synthesize_wav(text, wav_file, syn_config=config)
-        return True
-    except Exception as e:
-        print(f"Piper TTS generation failed for '{text}': {e}")
-        return False
-
-def process_tts_list(texts):
-    """Generates TTS files for a list of texts."""
-    for text in texts:
-        if not text or len(text) > 500:
-            continue
-
-        filename = get_tts_filename(text)
-        filepath = os.path.join(TTS_DIR, filename)
-
-        if not os.path.exists(filepath):
-            try:
-                generate_tts_file(text, filepath)
-            except Exception as e:
-                print(f"Error generating TTS for '{text}': {e}")
-
-def background_full_scan():
-    """Background task to scan ALL cards and generate missing TTS files."""
-    if not tts_lock.acquire(blocking=False):
-        print("Background scan already running, skipping.")
-        return
-
-    print("Starting background TTS full scan...")
-    try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT front, back FROM cards")
-            cards = cursor.fetchall()
-
-            # Collect all unique texts to avoid duplicate processing
-            all_texts = set()
-            for card in cards:
-                all_texts.add(card['front'])
-                all_texts.add(card['back'])
-
-            process_tts_list(list(all_texts))
-
-        print("Background TTS full scan completed.")
-    except Exception as e:
-        print(f"Background TTS task error: {e}")
-    finally:
-        tts_lock.release()
-
-def start_background_scan():
-    """Starts the full background scan in a separate thread."""
-    thread = threading.Thread(target=background_full_scan)
-    thread.daemon = True
-    thread.start()
-
-def start_specific_tts(texts):
-    """Starts a background thread for specific texts (e.g., after adding a card)."""
-    thread = threading.Thread(target=process_tts_list, args=(texts,))
-    thread.daemon = True
-    thread.start()
-
-def cleanup_legacy_audio():
-    """Removes any old .mp3 files from the TTS directory."""
-    print("Checking for legacy .mp3 files to clean up...")
-    count = 0
-    try:
-        for filename in os.listdir(TTS_DIR):
-            if filename.endswith('.mp3'):
-                filepath = os.path.join(TTS_DIR, filename)
-                try:
-                    os.remove(filepath)
-                    count += 1
-                except Exception as e:
-                    print(f"Error removing {filepath}: {e}")
-        if count > 0:
-            print(f"Cleaned up {count} legacy .mp3 files.")
-        else:
-            print("No legacy .mp3 files found.")
-    except Exception as e:
-        print(f"Error during legacy audio cleanup: {e}")
-
-@app.route('/api/settings/tts_speed', methods=['GET', 'POST'])
-def api_tts_speed():
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-
-        if request.method == 'POST':
-            # Update speed
-            data = request.json
-            new_speed = data.get('speed')
-            if not new_speed:
-                return jsonify({'error': 'Speed not provided'}), 400
-
-            try:
-                # Ensure it's a valid float
-                float(new_speed)
-                cursor.execute("""
-                    INSERT INTO settings (key, value)
-                    VALUES ('tts_speed', ?)
-                    ON CONFLICT(key) DO UPDATE SET value = ?
-                """, (str(new_speed), str(new_speed)))
-                conn.commit()
-                return jsonify({'status': 'success', 'speed': new_speed})
-            except ValueError:
-                return jsonify({'error': 'Invalid speed value'}), 400
-
-        # GET request
-        cursor.execute("SELECT value FROM settings WHERE key = 'tts_speed'")
-        row = cursor.fetchone()
-        speed = row['value'] if row else '1.0'
-        return jsonify({'status': 'success', 'speed': speed})
-
-
-@app.route('/api/tts', methods=['GET'])
-def api_tts():
-    text = request.args.get('text')
-    if not text:
-        return "No text provided", 400
-
-    # Security: Limit text length to prevent DoS/Resource Exhaustion
-    if len(text) > 500:
-        return "Text too long (max 500 characters)", 400
-
-    # 1. Check for new .wav cache
-    filename = get_tts_filename(text)
-    filepath = os.path.join(TTS_DIR, filename)
-    if os.path.exists(filepath):
-        return send_from_directory(TTS_DIR, filename)
-
-    # 2. Generate with Piper TTS
-    try:
-        success = generate_tts_file(text, filepath)
-        if success and os.path.exists(filepath):
-            return send_from_directory(TTS_DIR, filename)
-
-        return "TTS generation failed", 500
-
-    except Exception as e:
-        print(f"TTS Generation Error: {e}")
-        return f"TTS Error: {str(e)}", 500
-
-
-@app.route('/api/run_merge_scan', methods=['POST'])
-def run_merge_scan():
     merged_count = 0
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -1218,7 +1041,6 @@ def import_paste():
                 conn.commit()
 
                 # Trigger background TTS generation for imported cards
-                start_background_scan()
 
                 flash(f"✅ 成功處理 {count} 張卡片！(含合併與新增)", "success")
                 return redirect(url_for('index'))
@@ -1259,10 +1081,6 @@ def delete_all_cards():
 
 if __name__ == '__main__':
     init_db()
-    # Clean up old mp3 files before scanning
-    cleanup_legacy_audio()
-    # Start TTS generation on startup to catch any missing files
-    start_background_scan()
     # host='0.0.0.0' 讓區域網路內其他裝置可以連線
     # debug=False 在正式環境中是必要的安全措施
     app.run(debug=False, host='0.0.0.0', port=10000)
