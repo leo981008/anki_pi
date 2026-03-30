@@ -21,21 +21,6 @@ app = Flask(__name__)
 app.secret_key = SECRET_KEY
 csrf = CSRFProtect(app)
 
-@app.context_processor
-def inject_settings():
-    """Inject settings into all templates."""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute("SELECT value FROM settings WHERE key = 'tts_speed'")
-            row = cursor.fetchone()
-            tts_speed = float(row['value']) if row else 1.0
-        except Exception:
-            tts_speed = 1.0
-    return dict(global_tts_speed=tts_speed)
-
-
-
 # --- 資料庫初始化 ---
 def get_db_connection():
     conn = sqlite3.connect(DB_NAME)
@@ -258,9 +243,6 @@ def init_db():
                 value TEXT NOT NULL
             )
         ''')
-
-        # Initialize default settings if they don't exist
-        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('tts_speed', '1.0')")
 
         # Ensure card_decks and cards exist
         cursor.execute('''

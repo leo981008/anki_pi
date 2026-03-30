@@ -372,7 +372,6 @@
     
     <script>
         const csrfToken = "{{ csrf_token() }}";
-        window.globalTtsSpeed = {{ global_tts_speed }};
 
         // Theme toggling logic...
         (function() {
@@ -404,7 +403,6 @@
                 window.speechSynthesis.cancel();
                 const u = new SpeechSynthesisUtterance(text);
                 u.lang = 'en-US'; 
-                u.rate = window.globalTtsSpeed;
                 window.speechSynthesis.speak(u);
             } else {
                 console.error("Browser does not support Speech Synthesis API.");

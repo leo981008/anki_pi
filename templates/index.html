@@ -62,57 +62,7 @@
             </div>
         </div>
 
-        <!-- Settings -->
-        <div class="card">
-            <h3>⚙️ 設定</h3>
-            <div style="display: flex; flex-direction: column; gap: 15px; margin-top: 10px;">
-                <div>
-                    <label for="tts-speed-slider" style="display: flex; justify-content: space-between; font-weight: 500;">
-                        語音播放速度 (TTS)
-                        <span id="tts-speed-display">{{ "%.2f"|format(global_tts_speed) }}x</span>
-                    </label>
-                    <input type="range" id="tts-speed-slider" min="0.5" max="2.0" step="0.05" value="{{ global_tts_speed }}" style="width: 100%; margin-top: 8px;">
-                </div>
-            </div>
-        </div>
-        
     </div>
-
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const speedSlider = document.getElementById('tts-speed-slider');
-            const speedDisplay = document.getElementById('tts-speed-display');
-
-            if (speedSlider) {
-                speedSlider.addEventListener('input', (e) => {
-                    const val = parseFloat(e.target.value).toFixed(2);
-                    speedDisplay.textContent = `${val}x`;
-                    window.globalTtsSpeed = parseFloat(val);
-                });
-
-                speedSlider.addEventListener('change', async (e) => {
-                    const val = parseFloat(e.target.value);
-                    try {
-                        const response = await fetch('/api/settings/tts_speed', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-CSRFToken': csrfToken
-                            },
-                            body: JSON.stringify({ speed: val })
-                        });
-
-                        if (!response.ok) {
-                            console.error('Failed to save TTS speed');
-                        }
-                    } catch (err) {
-                        console.error('Error saving TTS speed:', err);
-                    }
-                });
-            }
-        });
-    </script>
-
 
     <!-- Card List -->
     <div class="card mt-2">
