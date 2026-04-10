@@ -1,20 +1,12 @@
 import sqlite3
-import requests
 import random
-import json
-import os
 import csv
 import io
-import wave
-import threading
-import uuid
-import hashlib
 from collections import defaultdict
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash, send_file, send_from_directory
 from datetime import datetime, timedelta
 from config import DB_NAME, SECRET_KEY
 from flask_wtf.csrf import CSRFProtect
-from backup_manager import backup_database
 
 app = Flask(__name__)
 # 從環境變數讀取 SECRET_KEY，如果找不到則使用一個預設值 (僅供開發)
