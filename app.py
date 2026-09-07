@@ -577,9 +577,9 @@ def settings():
 
     weights_val = db.get_setting("fsrs_weights", "預設 (尚未最佳化)")
     try:
-        daily_new_limit = max(0, int(db.get_setting("daily_new_limit", "20")))
+        daily_new_limit = max(0, int(db.get_setting("daily_new_limit", "0")))
     except (TypeError, ValueError):
-        daily_new_limit = 20
+        daily_new_limit = 0
     return render_template(
         "settings.html",
         desired_retention=retention,
@@ -626,15 +626,20 @@ def update_weights():
 def update_daily_new_limit():
     form = EmptyForm()
     if form.validate_on_submit():
-        try:
-            limit = int(request.form.get("daily_new_limit", "20"))
-            if 0 <= limit <= 1000:
-                db.set_setting("daily_new_limit", str(limit))
-                flash(f"每日新卡上限已設為 {limit} 張。", "success")
-            else:
-                flash("每日新卡上限必須介於 0 到 1000。", "danger")
-        except (TypeError, ValueError):
-            flash("每日新卡上限必須是整數。", "danger")
+        raw_val = request.form.get("daily_new_limit", "").strip()
+        if not raw_val or raw_val == "0":
+            db.set_setting("daily_new_limit", "0")
+            flash("每日新卡上限已取消（不限制數量）。", "success")
+        else:
+            try:
+                limit = int(raw_val)
+                if 0 <= limit <= 10000:
+                    db.set_setting("daily_new_limit", str(limit))
+                    flash(f"每日新卡上限已設為 {limit} 張。", "success")
+                else:
+                    flash("每日新卡上限必須介於 0 到 10000（0 代表不限制）。", "danger")
+            except (TypeError, ValueError):
+                flash("每日新卡上限必須是整數。", "danger")
     else:
         flash("CSRF 驗證失敗", "danger")
     return redirect(url_for("settings"))

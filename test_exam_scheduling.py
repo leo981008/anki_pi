@@ -1036,6 +1036,71 @@ def test_fsrs_scheduling_fixes():
         print("FSRS Scheduling Fixes Test clean up done.")
 
 
+def test_daily_new_limit_behavior():
+    print("=== Starting Daily New Limit Behavior Test ===")
+    conn = db.get_db_connection()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO decks (name) VALUES (?)", ("Daily Limit Test Deck",))
+    deck_id = cur.lastrowid
+
+    now = datetime.now(timezone.utc)
+    now_str = db.format_datetime_for_db(now)
+    card_ids = []
+    for i in range(25):
+        cur.execute(
+            """
+            INSERT INTO cards (front, back, next_review, state, step, reps, card_type)
+            VALUES (?, ?, ?, 0, 0, 0, 'recognize')
+        """,
+            (f"limit_word_{i}", f"解釋_{i}", now_str),
+        )
+        cid = cur.lastrowid
+        card_ids.append(cid)
+        cur.execute(
+            "INSERT INTO card_decks (card_id, deck_id) VALUES (?, ?)",
+            (cid, deck_id),
+        )
+    conn.commit()
+    conn.close()
+
+    try:
+        # 1. When daily_new_limit is 0 (unlimited), all 25 cards should be returned
+        db.set_setting("daily_new_limit", "0")
+        new_cards, _ = db.get_study_cards(deck_id=deck_id)
+        assert (
+            len(new_cards) == 25
+        ), f"Expected 25 cards for limit=0, got {len(new_cards)}"
+        print("[PASS] Limit=0 correctly returns all 25 new cards.")
+
+        # 2. When daily_new_limit is 10, exactly 10 cards should be returned
+        db.set_setting("daily_new_limit", "10")
+        new_cards, _ = db.get_study_cards(deck_id=deck_id)
+        assert (
+            len(new_cards) == 10
+        ), f"Expected 10 cards for limit=10, got {len(new_cards)}"
+        print("[PASS] Limit=10 correctly caps new cards to 10.")
+
+        # 3. Setting back to 0 should restore unlimited
+        db.set_setting("daily_new_limit", "0")
+        new_cards, _ = db.get_study_cards(deck_id=deck_id)
+        assert (
+            len(new_cards) == 25
+        ), f"Expected 25 cards for limit=0, got {len(new_cards)}"
+        print("[PASS] Resetting limit=0 correctly restores unlimited.")
+
+    finally:
+        conn = db.get_db_connection()
+        conn.execute(
+            "DELETE FROM cards WHERE id IN (SELECT card_id FROM card_decks WHERE deck_id = ?)",
+            (deck_id,),
+        )
+        conn.execute("DELETE FROM card_decks WHERE deck_id = ?", (deck_id,))
+        conn.execute("DELETE FROM decks WHERE id = ?", (deck_id,))
+        conn.commit()
+        conn.close()
+        print("Daily Limit Test clean up done.")
+
+
 if __name__ == "__main__":
     test_exam_scheduling()
     test_exam_scheduling_new_cards_cutoff()
@@ -1044,3 +1109,4 @@ if __name__ == "__main__":
     test_card_type_merging()
     test_desired_retention_scheduling()
     test_fsrs_scheduling_fixes()
+    test_daily_new_limit_behavior()

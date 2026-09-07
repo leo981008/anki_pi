@@ -35,8 +35,8 @@
                 {{ empty_form.csrf_token }}
                 <div class="form-group" style="margin-bottom: 20px;">
                     <label for="daily_new_limit" style="display: block; margin-bottom: 8px; font-weight: 500;">每日新卡上限</label>
-                    <p style="color: var(--text-secondary); font-size: 0.9rem;">以每日凌晨 4 點為切換點；設為 0 可暫停引入新卡。考試卡仍會先依考試日期分散。</p>
-                    <input id="daily_new_limit" name="daily_new_limit" type="number" min="0" max="1000" value="{{ daily_new_limit }}" class="form-control" style="max-width: 180px;">
+                    <p style="color: var(--text-secondary); font-size: 0.9rem;">以每日凌晨 4 點為切換點；<strong>設為 0 或留空代表「不限制」（學習時顯示所有待學新卡）</strong>。若輸入大於 0 的數值，則每日最多引入指定數量的新卡。</p>
+                    <input id="daily_new_limit" name="daily_new_limit" type="number" min="0" max="10000" value="{{ daily_new_limit }}" class="form-control" style="max-width: 180px;" placeholder="0 (不限制)">
                 </div>
                 <div style="display: flex; justify-content: flex-end;">
                     <button type="submit" class="btn btn-secondary"><i class="fa-solid fa-floppy-disk"></i> 儲存新卡上限</button>

@@ -366,32 +366,33 @@ class ExamSchedulerImpl:
                 if is_due:
                     due_cards.append(CardRow(**c_dict))
 
-        # Apply daily new limit
+        # Apply daily new limit (0, negative, or None means unlimited)
         try:
-            daily_new_limit = max(0, int(daily_new_limit))
+            limit_val = int(daily_new_limit) if daily_new_limit is not None else 0
         except (TypeError, ValueError):
-            daily_new_limit = 20
+            limit_val = 0
 
-        scope_card_ids = [r["id"] for r in card_rows]
-        learned_today = 0
-        if scope_card_ids:
-            day_start_utc = day_cutoff_utc - timedelta(days=1)
-            placeholders = ",".join("?" for _ in scope_card_ids)
-            rows = self.adapter.execute(
-                f"""
-                SELECT COUNT(DISTINCT card_id) as cnt
-                FROM revlog
-                WHERE review_state = 0
-                  AND review_time >= ?
-                  AND card_id IN ({placeholders})
-            """,
-                tuple([self.time.format_iso(day_start_utc), *scope_card_ids]),
-            )
-            learned_today = rows[0]["cnt"] if rows else 0
+        if limit_val > 0:
+            scope_card_ids = [r["id"] for r in card_rows]
+            learned_today = 0
+            if scope_card_ids:
+                day_start_utc = day_cutoff_utc - timedelta(days=1)
+                placeholders = ",".join("?" for _ in scope_card_ids)
+                rows = self.adapter.execute(
+                    f"""
+                    SELECT COUNT(DISTINCT card_id) as cnt
+                    FROM revlog
+                    WHERE review_state = 0
+                      AND review_time >= ?
+                      AND card_id IN ({placeholders})
+                """,
+                    tuple([self.time.format_iso(day_start_utc), *scope_card_ids]),
+                )
+                learned_today = rows[0]["cnt"] if rows else 0
 
-        remaining_new = max(0, daily_new_limit - learned_today)
-        random.shuffle(new_cards)
-        new_cards = new_cards[:remaining_new]
+            remaining_new = max(0, limit_val - learned_today)
+            random.shuffle(new_cards)
+            new_cards = new_cards[:remaining_new]
 
         return DueCards(new_cards=new_cards, due_cards=due_cards)
 

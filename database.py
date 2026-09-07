@@ -215,7 +215,10 @@ def get_study_cards(deck_id=None, folder_id=None, exam_id=None):
     elif exam_id:
         scope["exam_id"] = exam_id
 
-    daily_new_limit = int(_settings_repo.get("daily_new_limit", "20") or "20")
+    try:
+        daily_new_limit = int(_settings_repo.get("daily_new_limit", "0") or "0")
+    except (TypeError, ValueError):
+        daily_new_limit = 0
     due_cards = _exam_scheduler.get_due_cards(
         scope, _time_provider.now_utc(), daily_new_limit
     )
@@ -519,7 +522,10 @@ def get_today_cards(only_exams=True):
     # Use the new exam scheduler's get_due_cards for all decks
     # This is a simplified implementation for backward compatibility
     all_decks = _folder_deck_repo.list_all_decks()
-    daily_new_limit = int(_settings_repo.get("daily_new_limit", "20") or "20")
+    try:
+        daily_new_limit = int(_settings_repo.get("daily_new_limit", "0") or "0")
+    except (TypeError, ValueError):
+        daily_new_limit = 0
 
     new_cards_dict = {}
     due_cards_dict = {}
@@ -589,7 +595,10 @@ def get_today_cards(only_exams=True):
 
 def get_today_summary_stats():
     all_decks = _folder_deck_repo.list_all_decks()
-    daily_new_limit = int(_settings_repo.get("daily_new_limit", "20") or "20")
+    try:
+        daily_new_limit = int(_settings_repo.get("daily_new_limit", "0") or "0")
+    except (TypeError, ValueError):
+        daily_new_limit = 0
 
     # Get exam deck ids
     active_exams = _adapter.execute(
