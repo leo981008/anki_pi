@@ -30,7 +30,11 @@ class SqliteAdapter:
     def execute(self, sql: str, params: tuple = ()) -> list[dict[str, Any]]:
         conn = self._connect()
         try:
-            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+            with conn:
+                cursor = conn.execute(sql, params)
+                return (
+                    [dict(r) for r in cursor.fetchall()] if cursor.description else []
+                )
         finally:
             conn.close()
 

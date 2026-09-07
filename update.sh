@@ -24,7 +24,7 @@ echo -e "${YELLOW}[INFO] 專案路徑: $PROJECT_DIR${NC}"
 
 # 0. 備份資料庫
 echo -e "${YELLOW}[INFO] 正在備份資料庫...${NC}"
-DB_FILE="flashcards.db"
+DB_FILE="${DATABASE_PATH:-flashcards.db}"
 BACKUP_DIR="backups"
 MAX_BACKUPS=5
 
@@ -34,14 +34,15 @@ if [ -f "$DB_FILE" ]; then
     COMMIT_HASH=$(git rev-parse --short HEAD)
     BACKUP_FILE="$BACKUP_DIR/flashcards_${TIMESTAMP}_${COMMIT_HASH}_update.db"
 
-    # 使用 SQLite VACUUM INTO 確保備份一致性 (支援 WAL 模式)
-    if sqlite3 "$DB_FILE" "VACUUM INTO '$BACKUP_FILE'" 2>/dev/null; then
-        echo -e "${GREEN}資料庫已備份至: $BACKUP_FILE${NC}"
-    else
-        # 回退到簡單複製（舊版 SQLite 不支援 VACUUM INTO）
-        cp "$DB_FILE" "$BACKUP_FILE"
-        echo -e "${YELLOW}警告: 使用簡單複製備份（建議升級 SQLite 以支援 VACUUM INTO）${NC}"
+    PYTHON_BIN=""
+    [ -x ".venv/bin/python" ] && PYTHON_BIN=".venv/bin/python"
+    [ -z "$PYTHON_BIN" ] && [ -x "venv/bin/python" ] && PYTHON_BIN="venv/bin/python"
+    if [ -z "$PYTHON_BIN" ]; then
+        echo -e "${RED}錯誤: 找不到 Python 虛擬環境，無法安全備份 SQLite。${NC}"
+        exit 1
     fi
+    "$PYTHON_BIN" scripts/sqlite_backup.py "$DB_FILE" "$BACKUP_FILE"
+    echo -e "${GREEN}資料庫已備份並通過完整性檢查: $BACKUP_FILE${NC}"
 
     # 輪替備份 (保留最新的 5 份)
     # ls -t: 按時間排序 (最新的在前)
@@ -62,10 +63,15 @@ if ! git pull; then
 fi
 
 # 2. 更新 Python 依賴
-if [ -d "venv" ]; then
+if [ -d ".venv" ]; then
+    VENV_DIR=".venv"
+elif [ -d "venv" ]; then
+    VENV_DIR="venv"
+fi
+if [ -n "${VENV_DIR:-}" ]; then
     echo -e "${YELLOW}[INFO] 正在更新 Python 依賴...${NC}"
-    ./venv/bin/pip install --upgrade pip
-    ./venv/bin/pip install -r requirements.txt
+    "$VENV_DIR/bin/pip" install --upgrade pip
+    "$VENV_DIR/bin/pip" install -r requirements.txt
 
 else
     echo -e "${RED}錯誤: 找不到虛擬環境 (venv)。請確認安裝是否完整。${NC}"
@@ -88,8 +94,8 @@ After=network.target
 User=$USER_NAME
 Group=$USER_NAME
 WorkingDirectory=$PROJECT_DIR
-Environment="PATH=$PROJECT_DIR/venv/bin"
-ExecStart=$PROJECT_DIR/venv/bin/python $PROJECT_DIR/app.py
+Environment="PATH=$PROJECT_DIR/$VENV_DIR/bin"
+ExecStart=$PROJECT_DIR/$VENV_DIR/bin/python $PROJECT_DIR/app.py
 Restart=always
 
 [Install]

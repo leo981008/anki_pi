@@ -83,6 +83,13 @@ CREATE TABLE IF NOT EXISTS revlog (
     FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS review_requests (
+    request_id TEXT PRIMARY KEY,
+    card_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE CASCADE
+);
+
 -- 索引優化查詢效能
 CREATE INDEX IF NOT EXISTS idx_revlog_card_id ON revlog(card_id);
 CREATE INDEX IF NOT EXISTS idx_exams_date_processed ON exams(date, processed);

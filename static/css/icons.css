@@ -1,0 +1,41 @@
+/* Small dependency-free icon set for offline and intranet installations. */
+.fa-solid,
+.fa-regular {
+    display: inline-block;
+    width: 1.15em;
+    text-align: center;
+    font-style: normal;
+    line-height: 1;
+}
+.fa-solid::before, .fa-regular::before { content: "•"; }
+.fa-arrow-left::before { content: "←"; }
+.fa-arrow-right::before { content: "→"; }
+.fa-arrows-rotate::before { content: "↻"; }
+.fa-bell::before { content: "🔔"; }
+.fa-bolt-lightning::before { content: "⚡"; }
+.fa-book::before, .fa-book-open::before { content: "▤"; }
+.fa-box-archive::before { content: "▣"; }
+.fa-brain::before, .fa-brain-circuit::before { content: "◆"; }
+.fa-calendar::before, .fa-calendar-days::before, .fa-calendar-times::before { content: "▦"; }
+.fa-check-double::before, .fa-circle-check::before { content: "✓"; }
+.fa-circle-exclamation::before, .fa-triangle-exclamation::before { content: "!"; }
+.fa-circle-info::before { content: "i"; }
+.fa-circle-play::before, .fa-play::before { content: "▶"; }
+.fa-clock::before, .fa-hourglass-half::before { content: "◷"; }
+.fa-download::before { content: "⇩"; }
+.fa-eye::before { content: "◉"; }
+.fa-file-import::before { content: "⇥"; }
+.fa-filter::before { content: "▽"; }
+.fa-floppy-disk::before, .fa-save::before { content: "▣"; }
+.fa-folder::before, .fa-folder-open::before, .fa-folder-plus::before { content: "▰"; }
+.fa-gear::before, .fa-sliders::before { content: "⚙"; }
+.fa-graduation-cap::before { content: "◇"; }
+.fa-home::before { content: "⌂"; }
+.fa-keyboard::before { content: "⌨"; }
+.fa-layer-group::before, .fa-rectangle-list::before { content: "▤"; }
+.fa-magnifying-glass::before { content: "⌕"; }
+.fa-moon::before { content: "◐"; }
+.fa-pen::before, .fa-pen-clip::before, .fa-pen-to-square::before { content: "✎"; }
+.fa-plus::before { content: "+"; }
+.fa-trash::before, .fa-trash-can::before { content: "×"; }
+.fa-xmark::before { content: "×"; }

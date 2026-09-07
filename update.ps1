@@ -12,7 +12,8 @@ Write-Host "       Anki Pi 更新與備份腳本                     " -Foregrou
 Write-Host "==================================================" -ForegroundColor Cyan
 
 # 1. Backup Database
-if (Test-Path "flashcards.db") {
+$databasePath = if ($env:DATABASE_PATH) { $env:DATABASE_PATH } else { "flashcards.db" }
+if (Test-Path $databasePath) {
     Write-Host "正在備份當前資料庫..." -ForegroundColor Yellow
     if (-not (Test-Path "backups")) {
         New-Item -ItemType Directory -Path "backups" | Out-Null
@@ -20,7 +21,10 @@ if (Test-Path "flashcards.db") {
 
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
     $backupFile = "backups\flashcards_backup_$timestamp.db"
-    Copy-Item "flashcards.db" $backupFile
+    $python = if (Test-Path ".venv\Scripts\python.exe") { ".venv\Scripts\python.exe" } elseif (Test-Path "venv\Scripts\python.exe") { "venv\Scripts\python.exe" } else { $null }
+    if (-not $python) { throw "找不到 Python 虛擬環境，無法安全備份 SQLite。" }
+    & $python "scripts\sqlite_backup.py" $databasePath $backupFile
+    if ($LASTEXITCODE -ne 0) { throw "資料庫備份或完整性檢查失敗。" }
 
     Write-Host "資料庫備份成功：$backupFile" -ForegroundColor Green
 } else {
@@ -34,9 +38,15 @@ if (Test-Path ".git") {
 }
 
 # 3. Update dependencies
-if (Test-Path "venv") {
+$venvPath = $null
+if (Test-Path ".venv") {
+    $venvPath = ".venv"
+} elseif (Test-Path "venv") {
+    $venvPath = "venv"
+}
+if ($venvPath) {
     Write-Host "正在更新 Python 依賴套件..." -ForegroundColor Yellow
-    & ".\venv\Scripts\pip.exe" install -r requirements.txt
+    & ".\$venvPath\Scripts\pip.exe" install -r requirements.txt
     Write-Host "套件更新完成。" -ForegroundColor Green
 } else {
     Write-Warning "未偵測到 venv 虛擬環境，請先執行 .\install.ps1"

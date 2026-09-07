@@ -43,6 +43,8 @@ def handle_csrf_error(e):
         request.method,
         request.referrer,
     )
+    if request.path.startswith("/study/api/"):
+        return jsonify({"error": "CSRF validation failed"}), 400
     flash("CSRF 驗證失敗，請重試或重新整理頁面。", "danger")
     ref = request.referrer
     if ref and is_safe_url(ref):
@@ -527,17 +529,31 @@ def get_study_cards_api():
 
 @app.route("/study/api/review", methods=["POST"])
 def review_card_api():
-    data = request.get_json()
+    data = request.get_json(silent=True)
     if not data or "card_id" not in data or "rating" not in data:
         return jsonify({"error": "Missing parameters"}), 400
 
-    card_id = int(data["card_id"])
-    rating = int(data["rating"])
+    try:
+        card_id = int(data["card_id"])
+        rating = int(data["rating"])
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid parameters"}), 400
+
+    if card_id <= 0:
+        return jsonify({"error": "Invalid card_id"}), 400
+
+    request_id = data.get("request_id")
+    if (
+        not isinstance(request_id, str)
+        or not request_id.strip()
+        or len(request_id) > 64
+    ):
+        return jsonify({"error": "Invalid request_id"}), 400
 
     if rating not in [1, 2, 3, 4]:
         return jsonify({"error": "Invalid rating"}), 400
 
-    next_review = db.submit_card_review(card_id, rating)
+    next_review = db.submit_card_review(card_id, rating, request_id.strip())
     if not next_review:
         return jsonify({"error": "Card not found"}), 404
 

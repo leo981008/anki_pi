@@ -72,6 +72,18 @@ class CardRepo(Protocol):
         state: int,
         duration: int,
     ) -> None: ...
+    def save_review_with_log(
+        self,
+        card_id: int,
+        review: ScheduledReview,
+        reps: int,
+        lapses: int,
+        review_time: datetime,
+        rating: int,
+        previous_state: int,
+        duration: int = 0,
+        request_id: str | None = None,
+    ) -> bool: ...
 
 
 class FolderDeckRepo(Protocol):

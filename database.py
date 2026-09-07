@@ -267,7 +267,18 @@ def get_study_cards(deck_id=None, folder_id=None, exam_id=None):
     return new_cards, due_list
 
 
-def submit_card_review(card_id, rating_val):
+def submit_card_review(card_id, rating_val, request_id=None):
+    if request_id:
+        prior = _adapter.execute(
+            """
+            SELECT c.next_review FROM review_requests rr
+            JOIN cards c ON c.id = rr.card_id
+            WHERE rr.request_id = ? AND rr.card_id = ?
+            """,
+            (request_id, card_id),
+        )
+        if prior:
+            return prior[0]["next_review"]
     card_state = _card_repo.get_card_state(card_id)
     if not card_state:
         logger.warning("嘗試複習不存在的卡片: card_id=%d", card_id)
@@ -297,10 +308,21 @@ def submit_card_review(card_id, rating_val):
     reps = card_state.reps + 1
     lapses = card_state.lapses + (1 if rating_val == 1 else 0)
 
-    _card_repo.save_review(card_id, scheduled, reps, lapses)
-    _card_repo.save_revlog(
-        card_id, _time_provider.now_utc(), rating_val, card_state.state, 0
+    saved = _card_repo.save_review_with_log(
+        card_id,
+        scheduled,
+        reps,
+        lapses,
+        _time_provider.now_utc(),
+        rating_val,
+        card_state.state,
+        request_id=request_id,
     )
+    if not saved:
+        prior = _adapter.execute(
+            "SELECT next_review FROM cards WHERE id = ?", (card_id,)
+        )
+        return prior[0]["next_review"] if prior else None
 
     # Get deck names for notification
     card_row = _card_repo.get_by_id(card_id)
@@ -370,92 +392,9 @@ def parse_input_datetime(date_str):
 
 
 def distribute_exam_cards(exam_id, conn=None):
-    if conn is not None:
-        # Called from within a transaction - use the connection directly
-        # This is a legacy compatibility path
-        import random
-        from datetime import datetime, timezone, timedelta
-
-        cur = conn.cursor()
-        exam = cur.execute("SELECT date FROM exams WHERE id = ?", (exam_id,)).fetchone()
-        if not exam:
-            return
-        exam_date = _time_provider.parse_iso(exam["date"])
-        if not exam_date:
-            return
-
-        # 使用 JOIN 替代複雜的子查詢，提升效能與可讀性
-        rows = cur.execute(
-            """
-            SELECT DISTINCT c.id, c.reps, c.next_review
-            FROM cards c
-            INNER JOIN card_decks cd ON c.id = cd.card_id
-            INNER JOIN exam_decks ed ON cd.deck_id = ed.deck_id
-            WHERE ed.exam_id = ?
-            UNION
-            SELECT DISTINCT c.id, c.reps, c.next_review
-            FROM cards c
-            INNER JOIN card_decks cd ON c.id = cd.card_id
-            INNER JOIN deck_folders df ON cd.deck_id = df.deck_id
-            INNER JOIN exam_folders ef ON df.folder_id = ef.folder_id
-            WHERE ef.exam_id = ?
-        """,
-            (exam_id, exam_id),
-        ).fetchall()
-
-        now = datetime.now(timezone.utc)
-        total_days = (exam_date.date() - now.date()).days
-        if total_days <= 0:
-            return
-
-        new_card_ids = []
-        late_card_ids = []
-        for r in rows:
-            reps = r["reps"] or 0
-            next_review = (
-                _time_provider.parse_iso(r["next_review"]) if r["next_review"] else None
-            )
-            if reps == 0:
-                new_card_ids.append(r["id"])
-            elif next_review and next_review > exam_date:
-                late_card_ids.append(r["id"])
-
-        if not new_card_ids and not late_card_ids:
-            return
-
-        cutoff_date = exam_date - timedelta(days=7)
-        days_to_cutoff = (cutoff_date.date() - now.date()).days
-        days_for_new = days_to_cutoff if days_to_cutoff > 0 else max(1, total_days)
-
-        updates = []
-        if new_card_ids:
-            random.shuffle(new_card_ids)
-            for i, card_id in enumerate(new_card_ids):
-                day_offset = i % days_for_new
-                jitter_minutes = 0 if day_offset == 0 else random.randint(0, 60)
-                scheduled_dt = now + timedelta(days=day_offset, minutes=jitter_minutes)
-                cap_date = cutoff_date if days_to_cutoff > 0 else exam_date
-                if scheduled_dt >= cap_date:
-                    scheduled_dt = cap_date - timedelta(minutes=1)
-                updates.append((_time_provider.format_iso(scheduled_dt), card_id))
-
-        if late_card_ids:
-            random.shuffle(late_card_ids)
-            slots = days_for_new
-            for i, card_id in enumerate(late_card_ids):
-                day_offset = i % slots
-                jitter_minutes = random.randint(0, 60)
-                scheduled_dt = now + timedelta(days=day_offset, minutes=jitter_minutes)
-                cap_date = cutoff_date if days_to_cutoff > 0 else exam_date
-                if scheduled_dt >= cap_date:
-                    scheduled_dt = cap_date - timedelta(minutes=1)
-                updates.append((_time_provider.format_iso(scheduled_dt), card_id))
-
-        if updates:
-            cur.executemany("UPDATE cards SET next_review = ? WHERE id = ?", updates)
-    else:
-        # Called standalone - use the new scheduler
-        _exam_scheduler.distribute(exam_id, [], _time_provider.now_utc())
+    return _exam_scheduler.distribute(
+        exam_id, None, _time_provider.now_utc(), conn=conn
+    )
 
 
 def process_expired_exams():

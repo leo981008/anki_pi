@@ -121,6 +121,7 @@
     let activeQueue = []; // Current active session cards
     let currentCard = null;
     let spellShownSide = 'front'; // In spell mode, is front or back shown initially
+    let reviewSubmitting = false;
 
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
 
@@ -211,6 +212,8 @@
         spellResultAlert.classList.add('hidden');
         spellResultAlert.className = "spell-result-alert hidden";
         spellInput.value = "";
+        reviewSubmitting = false;
+        document.querySelectorAll('.btn-rating').forEach(btn => btn.disabled = false);
 
         if (activeQueue.length === 0) {
             // Study Complete
@@ -250,14 +253,17 @@
             if (spellShownSide === 'back') {
                 // Show back initially (flip it!)
                 flipCard.classList.add('flipped');
+                spellPanel.classList.remove('hidden');
+                showAnswerPanel.classList.add('hidden');
+                requestAnimationFrame(() => spellInput.focus());
+            } else {
+                showAnswerPanel.classList.remove('hidden');
             }
         } else {
             // Recognize mode: always show front first
             spellShownSide = 'front';
+            showAnswerPanel.classList.remove('hidden');
         }
-
-        // Always show "Show Answer" panel initially
-        showAnswerPanel.classList.remove('hidden');
     }
 
     function showAnswer() {
@@ -271,6 +277,7 @@
     }
 
     function handleSpellingSubmit() {
+        if (spellPanel.classList.contains('hidden') || !currentCard) return;
         const userInput = spellInput.value.trim().toLowerCase();
         const correctWord = currentCard.front.trim().toLowerCase();
 
@@ -294,6 +301,14 @@
     }
 
     function submitReview(rating) {
+        if (reviewSubmitting || !currentCard || ratingPanel.classList.contains('hidden')) return;
+        reviewSubmitting = true;
+        const reviewedCardId = currentCard.id;
+        const reviewRequestId = (globalThis.crypto && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        document.querySelectorAll('.btn-rating').forEach(btn => btn.disabled = true);
+
         fetch('/study/api/review', {
             method: 'POST',
             headers: {
@@ -301,11 +316,16 @@
                 'X-CSRFToken': csrfToken
             },
             body: JSON.stringify({
-                card_id: currentCard.id,
-                rating: rating
+                card_id: reviewedCardId,
+                rating: rating,
+                request_id: reviewRequestId
             })
         })
-        .then(res => res.json())
+        .then(async res => {
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+            return data;
+        })
         .then(data => {
             if (data.error) {
                 alert('提交評估失敗！');
@@ -315,7 +335,9 @@
             // Always remove the answered card. FSRS has already returned its
             // next due time; immediately re-queueing Again would bypass the
             // Learning/Relearning delay calculated by the scheduler.
-            activeQueue.shift();
+            if (activeQueue[0] && activeQueue[0].id === reviewedCardId) {
+                activeQueue.shift();
+            }
 
             updateProgressUI();
             showNextCard();
@@ -323,6 +345,8 @@
         .catch(err => {
             console.error(err);
             alert('送出作答結果時發生錯誤！');
+            reviewSubmitting = false;
+            document.querySelectorAll('.btn-rating').forEach(btn => btn.disabled = false);
         });
     }
 

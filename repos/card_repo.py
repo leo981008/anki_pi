@@ -379,10 +379,78 @@ class CardRepoImpl:
         state: int,
         duration: int,
     ) -> None:
-        self.adapter.execute(
-            """
-            INSERT INTO revlog (card_id, review_time, review_rating, review_state, review_duration)
-            VALUES (?, ?, ?, ?, ?)
-        """,
-            (card_id, self.time.format_iso(review_time), rating, state, duration),
-        )
+        def _tx(conn):
+            conn.execute(
+                """
+                INSERT INTO revlog (card_id, review_time, review_rating, review_state, review_duration)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (card_id, self.time.format_iso(review_time), rating, state, duration),
+            )
+
+        self.adapter.transaction(_tx)
+
+    def save_review_with_log(
+        self,
+        card_id: int,
+        review: ScheduledReview,
+        reps: int,
+        lapses: int,
+        review_time: datetime,
+        rating: int,
+        previous_state: int,
+        duration: int = 0,
+        request_id: str | None = None,
+    ) -> bool:
+        """Atomically persist a card's schedule and its matching review log."""
+
+        def _tx(conn):
+            if request_id:
+                cursor = conn.execute(
+                    """
+                    INSERT OR IGNORE INTO review_requests
+                        (request_id, card_id, created_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    (request_id, card_id, self.time.format_iso(review_time)),
+                )
+                if cursor.rowcount == 0:
+                    return False
+            cursor = conn.execute(
+                """
+                UPDATE cards
+                SET state = ?, step = ?, stability = ?, difficulty = ?,
+                    last_review = ?, next_review = ?, reps = ?, lapses = ?
+                WHERE id = ?
+                """,
+                (
+                    review.state,
+                    review.step,
+                    review.stability,
+                    review.difficulty,
+                    self.time.format_iso(review.last_review),
+                    self.time.format_iso(review.next_review),
+                    reps,
+                    lapses,
+                    card_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError(f"Card not found: {card_id}")
+            conn.execute(
+                """
+                INSERT INTO revlog
+                    (card_id, review_time, review_rating, review_state, review_duration)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    card_id,
+                    self.time.format_iso(review_time),
+                    rating,
+                    previous_state,
+                    duration,
+                ),
+            )
+            return True
+
+        return self.adapter.transaction(_tx)

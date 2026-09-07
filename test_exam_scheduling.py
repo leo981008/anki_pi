@@ -1,6 +1,29 @@
 import math
+import atexit
+import os
+import tempfile
 from datetime import datetime, timezone, timedelta
-import database as db
+
+_test_db_handle = tempfile.NamedTemporaryFile(
+    prefix="anki_pi_test_", suffix=".db", delete=False
+)
+_test_db_handle.close()
+os.environ["DATABASE_PATH"] = _test_db_handle.name
+os.environ["DISCORD_WEBHOOK_URL"] = ""
+
+
+def _cleanup_test_database():
+    try:
+        if os.path.exists(_test_db_handle.name):
+            os.unlink(_test_db_handle.name)
+    except OSError:
+        # Windows may still be finalizing a SQLite handle during interpreter exit.
+        pass
+
+
+atexit.register(_cleanup_test_database)
+
+import database as db  # noqa: E402
 
 
 def test_exam_scheduling():
