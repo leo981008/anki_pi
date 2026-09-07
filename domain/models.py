@@ -91,6 +91,7 @@ class ExamScope(TypedDict, total=False):
 class DueCards:
     new_cards: list[CardRow]
     due_cards: list[CardRow]
+    next_due_at: str | None = None
 
 
 @dataclass(frozen=True)

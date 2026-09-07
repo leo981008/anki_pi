@@ -344,6 +344,7 @@ class ExamSchedulerImpl:
             for row in deck_links:
                 deck_ids_map.setdefault(row["card_id"], []).append(row["deck_id"])
 
+        next_due_dt = None
         for r in card_rows:
             c_dict = dict(r)
             c_dict["deck_names"] = deck_names_map.get(r["id"], [])
@@ -356,6 +357,9 @@ class ExamSchedulerImpl:
             if reps == 0:
                 if not next_review or next_review <= now:
                     new_cards.append(CardRow(**c_dict))
+                elif next_review <= day_cutoff_utc:
+                    if next_due_dt is None or next_review < next_due_dt:
+                        next_due_dt = next_review
             else:
                 db_state = r["state"]
                 if db_state in (1, 3):
@@ -365,6 +369,11 @@ class ExamSchedulerImpl:
 
                 if is_due:
                     due_cards.append(CardRow(**c_dict))
+                elif (
+                    next_review and next_review > now and next_review <= day_cutoff_utc
+                ):
+                    if next_due_dt is None or next_review < next_due_dt:
+                        next_due_dt = next_review
 
         # Apply daily new limit (0, negative, or None means unlimited)
         try:
@@ -394,7 +403,10 @@ class ExamSchedulerImpl:
             random.shuffle(new_cards)
             new_cards = new_cards[:remaining_new]
 
-        return DueCards(new_cards=new_cards, due_cards=due_cards)
+        next_due_at_str = self.time.format_iso(next_due_dt) if next_due_dt else None
+        return DueCards(
+            new_cards=new_cards, due_cards=due_cards, next_due_at=next_due_at_str
+        )
 
     def process_expired(self, now: datetime) -> list[SchedulePlan]:
         def _tx(conn):

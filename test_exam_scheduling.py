@@ -1124,6 +1124,57 @@ def test_daily_new_limit_behavior():
         print("Daily Limit Test clean up done.")
 
 
+def test_next_due_at_calculation():
+    print("=== Starting Next Due At Calculation Test ===")
+    from datetime import datetime, timedelta, timezone
+
+    deck_id = db.create_deck("Test Next Due Deck")
+    c1, _ = db.add_card("apple_test_next_due", "蘋果", "recognize", [deck_id])
+    c2, _ = db.add_card("banana_test_next_due", "香蕉", "recognize", [deck_id])
+
+    now = datetime.now(timezone.utc)
+    in_5_min = now + timedelta(minutes=5)
+    in_3_days = now + timedelta(days=3)
+
+    conn = db.get_db_connection()
+    # c1: 5 分鐘後到期 (Learning 狀態)
+    conn.execute(
+        "UPDATE cards SET state=1, reps=1, next_review=? WHERE id=?",
+        (in_5_min.isoformat(), c1),
+    )
+    # c2: 3 天後到期 (超過今天的 day cutoff)
+    conn.execute(
+        "UPDATE cards SET state=2, reps=2, next_review=? WHERE id=?",
+        (in_3_days.isoformat(), c2),
+    )
+    conn.commit()
+    conn.close()
+
+    res = db.get_study_cards(deck_id=deck_id)
+    assert len(res.new_cards) == 0, "Should have 0 new cards"
+    assert len(res.due_cards) == 0, "Should have 0 due cards right now"
+    assert (
+        res.next_due_at is not None
+    ), "next_due_at should be computed for today's card"
+
+    dt = db.parse_db_datetime(res.next_due_at)
+    assert dt is not None
+    # Verify dt is roughly around in_5_min
+    diff = abs((dt - in_5_min).total_seconds())
+    assert diff < 5, f"Expected close to in_5_min, got diff {diff}s"
+
+    print("[PASS] next_due_at computed successfully within day cutoff.")
+
+    # Cleanup
+    conn = db.get_db_connection()
+    conn.execute("DELETE FROM card_decks WHERE deck_id = ?", (deck_id,))
+    conn.execute("DELETE FROM cards WHERE id IN (?, ?)", (c1, c2))
+    conn.execute("DELETE FROM decks WHERE id = ?", (deck_id,))
+    conn.commit()
+    conn.close()
+    print("Next Due Test clean up done.")
+
+
 if __name__ == "__main__":
     test_exam_scheduling()
     test_exam_scheduling_new_cards_cutoff()
@@ -1133,3 +1184,4 @@ if __name__ == "__main__":
     test_desired_retention_scheduling()
     test_fsrs_scheduling_fixes()
     test_daily_new_limit_behavior()
+    test_next_due_at_calculation()

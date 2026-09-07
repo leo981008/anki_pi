@@ -98,12 +98,24 @@
 
     <!-- Complete/Empty State Screen -->
     <div class="study-complete-screen hidden" id="complete-screen">
-        <div class="complete-content">
+        <div class="complete-content" id="complete-finished-state">
             <i class="fa-solid fa-circle-check complete-icon"></i>
             <h2>太棒了！</h2>
             <p>今天的所有記憶卡已經全部複習完畢！🎉</p>
             <div class="complete-actions">
+                <button type="button" class="btn btn-secondary" id="btn-recheck-finished"><i class="fa-solid fa-rotate"></i> 檢查新卡片</button>
                 <a href="{{ url_for('index') }}" class="btn btn-primary"><i class="fa-solid fa-home"></i> 返回儀表板</a>
+            </div>
+        </div>
+
+        <div class="complete-content hidden" id="complete-waiting-state">
+            <i class="fa-solid fa-hourglass-half complete-icon waiting-icon"></i>
+            <h2>稍作休息！</h2>
+            <p id="waiting-message">下一張單字將於稍後可複習。</p>
+            <div class="waiting-timer" id="waiting-timer-display">--:--</div>
+            <div class="complete-actions" style="margin-top: 24px;">
+                <button type="button" class="btn btn-primary" id="btn-recheck-now"><i class="fa-solid fa-rotate"></i> 立即重新檢查</button>
+                <a href="{{ url_for('index') }}" class="btn btn-secondary"><i class="fa-solid fa-home"></i> 返回儀表板</a>
             </div>
         </div>
     </div>
@@ -122,6 +134,10 @@
     let currentCard = null;
     let spellShownSide = 'front'; // In spell mode, is front or back shown initially
     let reviewSubmitting = false;
+    let nextDueAt = null;
+    let pollTimer = null;
+    let countdownTimer = null;
+    let isFetching = false;
 
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
 
@@ -145,7 +161,15 @@
     const spellSubmitBtn = document.getElementById('spell-submit-btn');
     const spellResultAlert = document.getElementById('spell-result');
     const completeScreen = document.getElementById('complete-screen');
+    const completeFinishedState = document.getElementById('complete-finished-state');
+    const completeWaitingState = document.getElementById('complete-waiting-state');
+    const waitingMessage = document.getElementById('waiting-message');
+    const waitingTimerDisplay = document.getElementById('waiting-timer-display');
+    const btnRecheckNow = document.getElementById('btn-recheck-now');
+    const btnRecheckFinished = document.getElementById('btn-recheck-finished');
     const studyWrapper = document.querySelector('.study-wrapper');
+    const cardContainer = document.querySelector('.study-card-container');
+    const interactionPanel = document.querySelector('.study-interaction-panel');
 
     // XSS 防護：HTML 轉義函數
     function escapeHtml(unsafe) {
@@ -160,35 +184,93 @@
 
     // Load cards on page load
     window.addEventListener('DOMContentLoaded', () => {
-        fetchCards();
+        fetchCards(false);
         setupEventListeners();
+        startAutoPolling();
     });
 
-    function fetchCards() {
+    function fetchCards(isBackground = false) {
+        if (isFetching) return;
+        isFetching = true;
+
         fetch(`/study/api/cards?type=${modeType}&id=${modeId}`)
             .then(res => res.json())
             .then(data => {
+                isFetching = false;
                 if (data.error) {
-                    alert('載入記憶卡失敗！');
+                    if (!isBackground) alert('載入記憶卡失敗！');
                     return;
                 }
-                dueQueue = data.due_cards || [];
-                newQueue = data.new_cards || [];
 
-                // Shuffle both queues
-                shuffleArray(dueQueue);
-                shuffleArray(newQueue);
+                nextDueAt = data.next_due_at || null;
+                const fetchedDue = data.due_cards || [];
+                const fetchedNew = data.new_cards || [];
 
-                // Protect the review backlog: scheduled cards come before new material.
-                activeQueue = [...dueQueue, ...newQueue];
-
-                updateProgressUI();
-                showNextCard();
+                mergeCardsIntoActiveQueue(fetchedDue, fetchedNew, isBackground);
             })
             .catch(err => {
+                isFetching = false;
                 console.error(err);
-                alert('伺服器連線錯誤！');
+                if (!isBackground) {
+                    alert('伺服器連線錯誤！');
+                }
             });
+    }
+
+    function mergeCardsIntoActiveQueue(fetchedDue, fetchedNew, isBackground) {
+        // Collect IDs of cards currently in play
+        const existingIds = new Set(activeQueue.map(c => c.id));
+        if (currentCard) {
+            existingIds.add(currentCard.id);
+        }
+
+        // Filter out cards that are already present
+        const incomingDue = fetchedDue.filter(c => !existingIds.has(c.id));
+        const incomingNew = fetchedNew.filter(c => !existingIds.has(c.id));
+
+        shuffleArray(incomingDue);
+        shuffleArray(incomingNew);
+
+        if (activeQueue.length === 0 && !currentCard) {
+            // First load or empty state
+            activeQueue = [...incomingDue, ...incomingNew];
+            updateProgressUI();
+            if (activeQueue.length > 0) {
+                hideCompleteScreen();
+                showNextCard();
+            } else {
+                renderEmptyOrWaitingState();
+            }
+            return;
+        }
+
+        // If currently in session, seamlessly insert incoming due cards:
+        // Rule: Existing cards remain undisturbed. Incoming due cards go after
+        // existing review cards (reps > 0) and before remaining new cards (reps === 0).
+        if (incomingDue.length > 0 || incomingNew.length > 0) {
+            const currentDueCards = activeQueue.filter(c => c.reps > 0);
+            const currentNewCards = activeQueue.filter(c => c.reps === 0);
+
+            activeQueue = [
+                ...currentDueCards,
+                ...incomingDue,
+                ...currentNewCards,
+                ...incomingNew
+            ];
+
+            updateProgressUI();
+
+            // If we were showing the waiting/complete screen and new cards arrived, resume studying!
+            if (!completeScreen.classList.contains('hidden') && activeQueue.length > 0) {
+                hideCompleteScreen();
+                showNextCard();
+            }
+        } else {
+            updateProgressUI();
+            if (activeQueue.length === 0 && !currentCard) {
+                renderEmptyOrWaitingState();
+            }
+        }
     }
 
     function shuffleArray(array) {
@@ -199,11 +281,91 @@
     }
 
     function updateProgressUI() {
-        // Calculate remaining in active queue
         let dueRemaining = activeQueue.filter(c => c.reps > 0).length;
         let newRemaining = activeQueue.filter(c => c.reps === 0).length;
+        if (currentCard) {
+            if (currentCard.reps > 0) dueRemaining++;
+            else newRemaining++;
+        }
         dueCountEl.textContent = dueRemaining;
         newCountEl.textContent = newRemaining;
+    }
+
+    function hideCompleteScreen() {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+        completeScreen.classList.add('hidden');
+        cardContainer.classList.remove('hidden');
+        interactionPanel.classList.remove('hidden');
+    }
+
+    function renderEmptyOrWaitingState() {
+        cardContainer.classList.add('hidden');
+        interactionPanel.classList.add('hidden');
+        completeScreen.classList.remove('hidden');
+
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+
+        if (nextDueAt) {
+            const targetTime = new Date(nextDueAt).getTime();
+            const now = Date.now();
+            const diffSeconds = Math.round((targetTime - now) / 1000);
+
+            if (diffSeconds > 0) {
+                completeFinishedState.classList.add('hidden');
+                completeWaitingState.classList.remove('hidden');
+                updateCountdownDisplay(targetTime);
+
+                countdownTimer = setInterval(() => {
+                    const remaining = updateCountdownDisplay(targetTime);
+                    if (remaining <= 0) {
+                        clearInterval(countdownTimer);
+                        countdownTimer = null;
+                        waitingMessage.textContent = "卡片已到期，正在載入...";
+                        fetchCards(false);
+                    }
+                }, 1000);
+                return;
+            }
+        }
+
+        // No upcoming card today or next_due_at is already in the past (try fetch once, otherwise finished)
+        completeWaitingState.classList.add('hidden');
+        completeFinishedState.classList.remove('hidden');
+    }
+
+    function updateCountdownDisplay(targetTime) {
+        const remainingSeconds = Math.max(0, Math.round((targetTime - Date.now()) / 1000));
+        const minutes = Math.floor(remainingSeconds / 60);
+        const seconds = remainingSeconds % 60;
+
+        const formattedTime = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        waitingTimerDisplay.textContent = formattedTime;
+
+        if (minutes > 0) {
+            waitingMessage.textContent = `下一張單字將於約 ${minutes} 分鐘後可複習`;
+        } else {
+            waitingMessage.textContent = `下一張單字將於約 ${seconds} 秒後可複習`;
+        }
+        return remainingSeconds;
+    }
+
+    function startAutoPolling() {
+        stopAutoPolling();
+        pollTimer = setInterval(() => {
+            // Only poll if tab is visible
+            if (!document.hidden) {
+                fetchCards(true);
+            }
+        }, 20000); // 20s
+    }
+
+    function stopAutoPolling() {
+        if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+        }
     }
 
     function showNextCard() {
@@ -216,14 +378,16 @@
         document.querySelectorAll('.btn-rating').forEach(btn => btn.disabled = false);
 
         if (activeQueue.length === 0) {
-            // Study Complete
-            document.querySelector('.study-card-container').classList.add('hidden');
-            document.querySelector('.study-interaction-panel').classList.add('hidden');
-            completeScreen.classList.remove('hidden');
+            currentCard = null;
+            updateProgressUI();
+            renderEmptyOrWaitingState();
+            // Also trigger an immediate check in case cards became due while finishing
+            fetchCards(true);
             return;
         }
 
         currentCard = activeQueue[0];
+        updateProgressUI();
 
         // Populate Front / Back text (使用 textContent 防止 XSS)
         frontText.textContent = currentCard.front;
@@ -409,6 +573,43 @@
                 if (e.key === '2') submitReview(2);
                 if (e.key === '3') submitReview(3);
                 if (e.key === '4') submitReview(4);
+            }
+        });
+
+        // Recheck buttons on waiting / finished screens
+        if (btnRecheckNow) {
+            btnRecheckNow.addEventListener('click', () => {
+                btnRecheckNow.disabled = true;
+                const origHtml = btnRecheckNow.innerHTML;
+                btnRecheckNow.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 檢查中...';
+                fetchCards(false);
+                setTimeout(() => {
+                    btnRecheckNow.disabled = false;
+                    btnRecheckNow.innerHTML = origHtml;
+                }, 1000);
+            });
+        }
+
+        if (btnRecheckFinished) {
+            btnRecheckFinished.addEventListener('click', () => {
+                btnRecheckFinished.disabled = true;
+                const origHtml = btnRecheckFinished.innerHTML;
+                btnRecheckFinished.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 檢查中...';
+                fetchCards(false);
+                setTimeout(() => {
+                    btnRecheckFinished.disabled = false;
+                    btnRecheckFinished.innerHTML = origHtml;
+                }, 1000);
+            });
+        }
+
+        // Visibility Change: pause when backgrounded, immediately check and resume when active
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                stopAutoPolling();
+            } else {
+                fetchCards(true);
+                startAutoPolling();
             }
         });
     }

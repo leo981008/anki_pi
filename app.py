@@ -512,19 +512,25 @@ def get_study_cards_api():
     mode_id = request.args.get("id", type=int)
 
     if mode_type == "deck":
-        new_cards, due_cards = db.get_study_cards(deck_id=mode_id)
+        result = db.get_study_cards(deck_id=mode_id)
     elif mode_type == "folder":
-        new_cards, due_cards = db.get_study_cards(folder_id=mode_id)
+        result = db.get_study_cards(folder_id=mode_id)
     elif mode_type == "exam":
-        new_cards, due_cards = db.get_study_cards(exam_id=mode_id)
+        result = db.get_study_cards(exam_id=mode_id)
     elif mode_type == "today_exams":
-        new_cards, due_cards = db.get_today_cards(only_exams=True)
+        result = db.get_today_cards(only_exams=True)
     elif mode_type == "today_general":
-        new_cards, due_cards = db.get_today_cards(only_exams=False)
+        result = db.get_today_cards(only_exams=False)
     else:
         return jsonify({"error": "Invalid type"}), 400
 
-    return jsonify({"new_cards": new_cards, "due_cards": due_cards})
+    return jsonify(
+        {
+            "new_cards": result.new_cards,
+            "due_cards": result.due_cards,
+            "next_due_at": getattr(result, "next_due_at", None),
+        }
+    )
 
 
 @app.route("/study/api/review", methods=["POST"])

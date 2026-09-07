@@ -67,7 +67,21 @@ def send_discord_message(content: str) -> None:
         threading.Thread(target=run_send, daemon=True).start()
 
 
-# --- Folder and Deck CRUD ---
+class StudyCardsResult(tuple):
+    """Backwards-compatible result tuple for study cards.
+    Unpacks as `new_cards, due_cards = res`, and provides `.next_due_at` attribute.
+    """
+
+    new_cards: list
+    due_cards: list
+    next_due_at: str | None
+
+    def __new__(cls, new_cards, due_cards, next_due_at=None):
+        instance = super().__new__(cls, (new_cards, due_cards))
+        instance.new_cards = new_cards
+        instance.due_cards = due_cards
+        instance.next_due_at = next_due_at
+        return instance
 
 
 def get_all_folders():
@@ -264,7 +278,7 @@ def get_study_cards(deck_id=None, folder_id=None, exam_id=None):
                 "deck_ids": c.deck_ids,
             }
         )
-    return new_cards, due_list
+    return StudyCardsResult(new_cards, due_list, due_cards.next_due_at)
 
 
 def submit_card_review(card_id, rating_val, request_id=None):
@@ -529,7 +543,22 @@ def get_today_cards(only_exams=True):
             else:
                 filtered_due.append(c_dict)
 
-    return filtered_new, filtered_due
+    # Compute earliest next_due_at for today's scope
+    now_utc = _time_provider.now_utc()
+    next_due_dt = None
+    for d in all_decks:
+        is_exam_deck = d.id in exam_deck_ids
+        if (only_exams and is_exam_deck) or (not only_exams and not is_exam_deck):
+            due = _exam_scheduler.get_due_cards(
+                ExamScope(deck_id=d.id), now_utc, daily_new_limit
+            )
+            if due.next_due_at:
+                dt = _time_provider.parse_iso(due.next_due_at)
+                if dt and (next_due_dt is None or dt < next_due_dt):
+                    next_due_dt = dt
+
+    next_due_at_str = _time_provider.format_iso(next_due_dt) if next_due_dt else None
+    return StudyCardsResult(filtered_new, filtered_due, next_due_at_str)
 
 
 def get_today_summary_stats():

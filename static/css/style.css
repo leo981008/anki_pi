@@ -997,6 +997,22 @@ a.badge:active {
     color: var(--success);
     margin-bottom: 24px;
 }
+.waiting-icon {
+    color: var(--primary);
+    animation: pulse-waiting 2s infinite ease-in-out;
+}
+@keyframes pulse-waiting {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.08); opacity: 0.8; }
+}
+.waiting-timer {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--primary);
+    margin-top: 8px;
+    letter-spacing: 0.05em;
+}
 .complete-content h2 {
     font-family: var(--font-display);
     font-size: 2rem;
@@ -1006,6 +1022,12 @@ a.badge:active {
     color: var(--text-secondary);
     font-size: 1.1rem;
     margin-bottom: 32px;
+}
+.complete-actions {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
 }
 
 /* Settings Module */
