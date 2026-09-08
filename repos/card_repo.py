@@ -166,7 +166,7 @@ class CardRepoImpl:
                 )
                 cur.execute(
                     "UPDATE cards SET back = ?, card_type = ? WHERE id = ?",
-                    (merged_back[: self.FIELD_MAX_LENGTH], new_type, existing["id"]),
+                    (merged_back, new_type, existing["id"]),
                 )
                 card_id = existing["id"]
                 merged = True
@@ -217,7 +217,7 @@ class CardRepoImpl:
             """,
                 (
                     front.strip()[: self.FIELD_MAX_LENGTH],
-                    back.strip()[: self.FIELD_MAX_LENGTH],
+                    back.strip(),
                     card_type,
                     card_id,
                 ),
@@ -269,7 +269,7 @@ class CardRepoImpl:
                     if not row or len(row) < 2:
                         continue
                     front = row[0].strip()[: self.FIELD_MAX_LENGTH]
-                    back = row[1].strip()[: self.FIELD_MAX_LENGTH]
+                    back = row[1].strip()
                     if not front or not back:
                         continue
 
@@ -286,7 +286,7 @@ class CardRepoImpl:
                         cur.execute(
                             "UPDATE cards SET back = ?, card_type = ? WHERE id = ?",
                             (
-                                merged_back[: self.FIELD_MAX_LENGTH],
+                                merged_back,
                                 new_card_type,
                                 existing["id"],
                             ),

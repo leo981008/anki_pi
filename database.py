@@ -1,6 +1,7 @@
 # database.py - Strangler Fig facade: delegates to new modules while preserving exact same API
 from __future__ import annotations
 import logging
+from datetime import timedelta, timezone
 from config import Config
 from adapters.sqlite_adapter import SqliteAdapter
 from domain.time_provider import SystemTimeProvider
@@ -425,6 +426,9 @@ def get_all_exams():
             "id": e.id,
             "name": e.name,
             "date": _time_provider.format_iso(e.date),
+            "display_date": e.date.astimezone(timezone(timedelta(hours=8))).strftime(
+                "%Y-%m-%d"
+            ),
             "processed": e.processed,
             "decks": [{"id": d.id, "name": d.name} for d in e.decks],
             "folders": [{"id": f.id, "name": f.name} for f in e.folders],
@@ -444,7 +448,7 @@ def create_exam(name, date_str, deck_ids=None, folder_ids=None):
     exam_id = _exam_scheduler.create_exam(
         name, date_str, deck_ids or [], folder_ids or []
     )
-    utc_dt = _time_provider.parse_iso(date_str)
+    utc_dt = _exam_scheduler._parse_user_datetime(date_str)
     from domain.events import ExamCreatedEvent
 
     _notifier.notify(ExamCreatedEvent(name=name, date=utc_dt))
@@ -471,6 +475,11 @@ def import_exams_csv(csv_text):
     return _exam_scheduler.import_exams_csv(csv_text)
 
 
+def validate_fsrs_weights(weights):
+    """Validate weights against the installed FSRS implementation."""
+    FsrcSchedulerImpl().set_parameters(tuple(weights))
+
+
 def get_today_cards(only_exams=True):
     # Use the new exam scheduler's get_due_cards for all decks
     # This is a simplified implementation for backward compatibility
@@ -485,9 +494,7 @@ def get_today_cards(only_exams=True):
 
     for d in all_decks:
         scope = ExamScope(deck_id=d.id)
-        due = _exam_scheduler.get_due_cards(
-            scope, _time_provider.now_utc(), daily_new_limit
-        )
+        due = _exam_scheduler.get_due_cards(scope, _time_provider.now_utc(), 0)
         for c in due.new_cards:
             new_cards_dict[c.id] = c
         for c in due.due_cards:
@@ -517,6 +524,29 @@ def get_today_cards(only_exams=True):
         for d in folder_decks:
             exam_deck_ids.add(d["deck_id"])
 
+    # Apply the setting once across the complete, de-duplicated daily queue.
+    if daily_new_limit > 0:
+        day_start = _time_provider.day_cutoff_utc() - timedelta(days=1)
+        learned = _adapter.execute(
+            "SELECT COUNT(DISTINCT card_id) AS cnt FROM revlog "
+            "WHERE review_state = 0 AND review_time >= ?",
+            (_time_provider.format_iso(day_start),),
+        )
+        remaining = max(0, daily_new_limit - (learned[0]["cnt"] if learned else 0))
+        ordered_ids = sorted(
+            new_cards_dict,
+            key=lambda card_id: (
+                0
+                if any(d in exam_deck_ids for d in new_cards_dict[card_id].deck_ids)
+                else 1,
+                new_cards_dict[card_id].next_review,
+                card_id,
+            ),
+        )
+        allowed_new_ids = set(ordered_ids[:remaining])
+    else:
+        allowed_new_ids = set(new_cards_dict)
+
     filtered_new = []
     filtered_due = []
     for c in list(new_cards_dict.values()) + list(due_cards_dict.values()):
@@ -538,7 +568,9 @@ def get_today_cards(only_exams=True):
                 "deck_names": c.deck_names,
                 "deck_ids": c.deck_ids,
             }
-            if c in new_cards_dict.values():
+            if c.id in new_cards_dict:
+                if c.id not in allowed_new_ids:
+                    continue
                 filtered_new.append(c_dict)
             else:
                 filtered_due.append(c_dict)
@@ -549,9 +581,7 @@ def get_today_cards(only_exams=True):
     for d in all_decks:
         is_exam_deck = d.id in exam_deck_ids
         if (only_exams and is_exam_deck) or (not only_exams and not is_exam_deck):
-            due = _exam_scheduler.get_due_cards(
-                ExamScope(deck_id=d.id), now_utc, daily_new_limit
-            )
+            due = _exam_scheduler.get_due_cards(ExamScope(deck_id=d.id), now_utc, 0)
             if due.next_due_at:
                 dt = _time_provider.parse_iso(due.next_due_at)
                 if dt and (next_due_dt is None or dt < next_due_dt):
@@ -562,71 +592,20 @@ def get_today_cards(only_exams=True):
 
 
 def get_today_summary_stats():
-    all_decks = _folder_deck_repo.list_all_decks()
-    try:
-        daily_new_limit = int(_settings_repo.get("daily_new_limit", "0") or "0")
-    except (TypeError, ValueError):
-        daily_new_limit = 0
-
-    # Get exam deck ids
-    active_exams = _adapter.execute(
-        "SELECT id FROM exams WHERE date > ? AND processed = 0",
-        (_time_provider.format_iso(_time_provider.now_utc()),),
-    )
-    exam_deck_ids = set()
-    for e in active_exams:
-        direct = _adapter.execute(
-            "SELECT deck_id FROM exam_decks WHERE exam_id = ?", (e["id"],)
-        )
-        for d in direct:
-            exam_deck_ids.add(d["deck_id"])
-        folder_decks = _adapter.execute(
-            """
-            SELECT df.deck_id FROM deck_folders df
-            JOIN exam_folders ef ON df.folder_id = ef.folder_id
-            WHERE ef.exam_id = ?
-        """,
-            (e["id"],),
-        )
-        for d in folder_decks:
-            exam_deck_ids.add(d["deck_id"])
-
-    exam_new = {}
-    exam_due = {}
-    general_new = {}
-    general_due = {}
-
-    for d in all_decks:
-        deck_id = d.id
-        is_exam_deck = deck_id in exam_deck_ids
-
-        scope = ExamScope(deck_id=deck_id)
-        due = _exam_scheduler.get_due_cards(
-            scope, _time_provider.now_utc(), daily_new_limit
-        )
-
-        if is_exam_deck:
-            for c in due.new_cards:
-                exam_new[c.id] = c
-            for c in due.due_cards:
-                exam_due[c.id] = c
-        else:
-            for c in due.new_cards:
-                general_new[c.id] = c
-            for c in due.due_cards:
-                general_due[c.id] = c
+    exam_cards = get_today_cards(only_exams=True)
+    general_cards = get_today_cards(only_exams=False)
 
     return {
-        "exam_new_count": len(exam_new),
-        "exam_due_count": len(exam_due),
-        "exam_total": len(exam_new) + len(exam_due),
-        "general_new_count": len(general_new),
-        "general_due_count": len(general_due),
-        "general_total": len(general_new) + len(general_due),
-        "today_total": len(exam_new)
-        + len(exam_due)
-        + len(general_new)
-        + len(general_due),
+        "exam_new_count": len(exam_cards.new_cards),
+        "exam_due_count": len(exam_cards.due_cards),
+        "exam_total": len(exam_cards.new_cards) + len(exam_cards.due_cards),
+        "general_new_count": len(general_cards.new_cards),
+        "general_due_count": len(general_cards.due_cards),
+        "general_total": len(general_cards.new_cards) + len(general_cards.due_cards),
+        "today_total": len(exam_cards.new_cards)
+        + len(exam_cards.due_cards)
+        + len(general_cards.new_cards)
+        + len(general_cards.due_cards),
     }
 
 

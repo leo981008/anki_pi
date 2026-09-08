@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from domain.protocols import (
     DatabaseAdapter,
     CardRepo,
@@ -202,6 +202,34 @@ class ExamSchedulerImpl:
                     self.time.parse_iso(r["next_review"]) if r["next_review"] else None
                 )
 
+                # A later exam must never overwrite the schedule created for
+                # an earlier active exam that contains this card.
+                earliest = cur.execute(
+                    """
+                    SELECT MIN(e.date) AS min_date
+                    FROM exams e
+                    WHERE e.date > ? AND e.processed = 0
+                      AND e.id IN (
+                        SELECT ed.exam_id FROM exam_decks ed
+                        JOIN card_decks cd ON cd.deck_id = ed.deck_id
+                        WHERE cd.card_id = ?
+                        UNION
+                        SELECT ef.exam_id FROM exam_folders ef
+                        JOIN deck_folders df ON df.folder_id = ef.folder_id
+                        JOIN card_decks cd ON cd.deck_id = df.deck_id
+                        WHERE cd.card_id = ?
+                      )
+                    """,
+                    (self.time.format_iso(now), r["id"], r["id"]),
+                ).fetchone()
+                earliest_date = (
+                    self.time.parse_iso(earliest["min_date"])
+                    if earliest and earliest["min_date"]
+                    else None
+                )
+                if earliest_date and earliest_date < exam_date:
+                    continue
+
                 if reps == 0:
                     new_card_ids.append(r["id"])
                 elif next_review and next_review > exam_date:
@@ -382,26 +410,29 @@ class ExamSchedulerImpl:
             limit_val = 0
 
         if limit_val > 0:
-            scope_card_ids = [r["id"] for r in card_rows]
-            learned_today = 0
-            if scope_card_ids:
-                day_start_utc = day_cutoff_utc - timedelta(days=1)
-                placeholders = ",".join("?" for _ in scope_card_ids)
-                rows = self.adapter.execute(
-                    f"""
-                    SELECT COUNT(DISTINCT card_id) as cnt
-                    FROM revlog
-                    WHERE review_state = 0
-                      AND review_time >= ?
-                      AND card_id IN ({placeholders})
+            day_start_utc = day_cutoff_utc - timedelta(days=1)
+            rows = self.adapter.execute(
+                """
+                SELECT COUNT(DISTINCT card_id) as cnt
+                FROM revlog
+                WHERE review_state = 0 AND review_time >= ?
                 """,
-                    tuple([self.time.format_iso(day_start_utc), *scope_card_ids]),
-                )
-                learned_today = rows[0]["cnt"] if rows else 0
+                (self.time.format_iso(day_start_utc),),
+            )
+            learned_today = rows[0]["cnt"] if rows else 0
 
             remaining_new = max(0, limit_val - learned_today)
-            random.shuffle(new_cards)
-            new_cards = new_cards[:remaining_new]
+            globally_available = self.adapter.execute(
+                """
+                SELECT id FROM cards
+                WHERE (reps = 0 OR reps IS NULL) AND next_review <= ?
+                ORDER BY next_review, id
+                LIMIT ?
+                """,
+                (self.time.format_iso(now), remaining_new),
+            )
+            allowed_ids = {row["id"] for row in globally_available}
+            new_cards = [card for card in new_cards if card.id in allowed_ids]
 
         next_due_at_str = self.time.format_iso(next_due_dt) if next_due_dt else None
         return DueCards(
@@ -572,7 +603,7 @@ class ExamSchedulerImpl:
         deck_ids: list[int] | None = None,
         folder_ids: list[int] | None = None,
     ) -> int:
-        utc_dt = self.time.parse_iso(date_str)
+        utc_dt = self._parse_user_datetime(date_str)
         if not utc_dt:
             raise ValueError("無效的考試日期與時間格式")
 
@@ -606,6 +637,18 @@ class ExamSchedulerImpl:
         self.distribute(exam_id, None, self.time.now_utc())
 
         return exam_id
+
+    def _parse_user_datetime(self, text: str) -> datetime | None:
+        """Interpret date-only user input as midnight in UTC+8."""
+        try:
+            if len(text.strip()) == 10:
+                local = datetime.strptime(text.strip(), "%Y-%m-%d").replace(
+                    tzinfo=timezone(timedelta(hours=8))
+                )
+                return local.astimezone(timezone.utc)
+        except (TypeError, ValueError):
+            return None
+        return self.time.parse_iso(text)
 
     def delete_exam(self, exam_id: int) -> None:
         def _tx(conn):
@@ -662,7 +705,7 @@ class ExamSchedulerImpl:
                 if not deck_ids and not folder_ids:
                     continue
 
-                utc_dt = self.time.parse_iso(date_str)
+                utc_dt = self._parse_user_datetime(date_str)
                 if not utc_dt:
                     continue
                 date_formatted = self.time.format_iso(utc_dt)

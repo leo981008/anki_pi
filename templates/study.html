@@ -386,7 +386,7 @@
             return;
         }
 
-        currentCard = activeQueue[0];
+        currentCard = activeQueue.shift();
         updateProgressUI();
 
         // Populate Front / Back text (使用 textContent 防止 XSS)
@@ -411,7 +411,6 @@
         // Check Mode
         if (currentCard.card_type === 'spell') {
             // In spell mode, 50% chance to show front first (recognize), 50% chance to show back first (spell)
-            // But if it shows back first, we need to ask user to spell the front!
             spellShownSide = Math.random() < 0.5 ? 'front' : 'back';
 
             if (spellShownSide === 'back') {
@@ -449,19 +448,16 @@
         spellResultAlert.classList.remove('hidden');
         ratingPanel.classList.remove('hidden');
 
-        // Show front side so they can see the word
+        // Show front side so the correct answer is visible.
         flipCard.classList.remove('flipped');
 
         if (userInput === correctWord) {
             spellResultAlert.textContent = "🎉 拼寫正確！";
             spellResultAlert.className = "spell-result-alert spell-success";
         } else {
-            // 使用 textContent + 轉義防止 XSS
             spellResultAlert.innerHTML = `❌ 拼寫錯誤！<br>正確答案是：<strong class="font-outfit font-lg">${escapeHtml(currentCard.front)}</strong><br>您輸入的是：<strong>${escapeHtml(spellInput.value)}</strong>`;
             spellResultAlert.className = "spell-result-alert spell-error";
         }
-
-
     }
 
     function submitReview(rating) {
@@ -499,9 +495,7 @@
             // Always remove the answered card. FSRS has already returned its
             // next due time; immediately re-queueing Again would bypass the
             // Learning/Relearning delay calculated by the scheduler.
-            if (activeQueue[0] && activeQueue[0].id === reviewedCardId) {
-                activeQueue.shift();
-            }
+            activeQueue = activeQueue.filter(card => card.id !== reviewedCardId);
 
             updateProgressUI();
             showNextCard();
@@ -540,7 +534,6 @@
             }
         });
 
-
         // Dictionary Buttons
         const openDictLink = () => openDictionary(currentCard.front);
         dictBtn.addEventListener('click', (e) => { e.stopPropagation(); openDictLink(); });
@@ -556,7 +549,7 @@
 
         // Keyboard Shortcuts
         document.addEventListener('keydown', (e) => {
-            // Ignore shortcut if user is typing in spell input
+            // Ignore shortcuts while the user is typing an answer.
             if (document.activeElement === spellInput) return;
 
             // Space key to show answer

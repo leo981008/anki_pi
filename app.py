@@ -406,6 +406,11 @@ def import_csv():
             return redirect(url_for("cards_list"))
         except ValueError as e:
             flash(f"匯入失敗: {str(e)}", "danger")
+            return redirect(
+                request.referrer
+                if is_safe_url(request.referrer)
+                else url_for("cards_list")
+            )
     else:
         for field, errors in form.errors.items():
             for error in errors:
@@ -630,6 +635,7 @@ def update_weights():
         try:
             w_list = [float(x.strip()) for x in weights.split(",")]
             if len(w_list) == 21:
+                db.validate_fsrs_weights(w_list)
                 db.set_setting("fsrs_weights", weights.strip())
                 flash("FSRS 參數已更新！", "success")
             else:
@@ -637,8 +643,8 @@ def update_weights():
                     f"參數數量不正確 ({len(w_list)})。目前版本需要 21 個數值。",
                     "danger",
                 )
-        except ValueError:
-            flash("參數格式錯誤，必須是逗號分隔的數值。", "danger")
+        except ValueError as e:
+            flash(f"參數無效：{str(e)}", "danger")
     else:
         flash("CSRF 驗證失敗", "danger")
     return redirect(url_for("settings"))

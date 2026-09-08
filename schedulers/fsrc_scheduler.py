@@ -61,4 +61,7 @@ class FsrcSchedulerImpl:
     def set_parameters(self, weights: tuple[float, ...]) -> None:
         if len(weights) != 21:
             raise ValueError("FSRS parameters must be 21 floats")
+        # Let the installed FSRS version enforce its parameter bounds now,
+        # before a bad setting can make every review request fail.
+        Scheduler(parameters=weights)
         self._parameters = weights
