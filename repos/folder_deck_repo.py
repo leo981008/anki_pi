@@ -13,6 +13,7 @@ class FolderDeckRepoImpl:
     def list_folders_with_decks(self) -> tuple[list[FolderWithDecks], list[DeckRow]]:
         now = self.time.now_utc()
         now_str = self.time.format_iso(now)
+        day_cutoff_str = self.time.format_iso(self.time.day_cutoff_utc())
 
         folders = self.adapter.execute("SELECT * FROM folders")
         folder_list = []
@@ -20,12 +21,19 @@ class FolderDeckRepoImpl:
         stats_query = """
             SELECT cd.deck_id,
                    SUM(CASE WHEN c.reps = 0 OR c.reps IS NULL THEN 1 ELSE 0 END) as new_count,
-                   SUM(CASE WHEN c.reps > 0 AND c.next_review <= ? THEN 1 ELSE 0 END) as due_count
+                   SUM(CASE
+                       WHEN c.reps > 0 AND (
+                           (c.state IN (1, 3) AND c.next_review <= ?)
+                           OR ((c.state NOT IN (1, 3) OR c.state IS NULL)
+                               AND c.next_review <= ?)
+                       ) THEN 1
+                       ELSE 0
+                   END) as due_count
             FROM card_decks cd
             JOIN cards c ON cd.card_id = c.id
             GROUP BY cd.deck_id
         """
-        stats_rows = self.adapter.execute(stats_query, (now_str,))
+        stats_rows = self.adapter.execute(stats_query, (now_str, day_cutoff_str))
         deck_stats = {
             row["deck_id"]: {
                 "new_count": row["new_count"],

@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from adapters.sqlite_adapter import SqliteAdapter
-from domain.models import ScheduledReview
+from domain.models import ExamScope, ScheduledReview
 from domain.time_provider import FixedTimeProvider
 from repos.card_repo import CardRepoImpl
+from repos.folder_deck_repo import FolderDeckRepoImpl
+from repos.settings_repo import SettingsRepoImpl
+from schedulers.exam_scheduler import ExamSchedulerImpl
 from scripts.sqlite_backup import backup_database
 
 
@@ -88,6 +91,58 @@ class PersistenceRegressionTests(unittest.TestCase):
             provider.day_cutoff_utc(),
             datetime(2026, 9, 7, 20, 0, tzinfo=timezone.utc),
         )
+
+    def test_deck_badge_due_count_matches_study_queue(self):
+        time_provider = FixedTimeProvider(self.now)
+        folder_deck_repo = FolderDeckRepoImpl(self.adapter, time_provider)
+        settings_repo = SettingsRepoImpl(self.adapter)
+        scheduler = ExamSchedulerImpl(
+            self.adapter,
+            self.repo,
+            folder_deck_repo,
+            settings_repo,
+            time_provider,
+        )
+        deck_id = folder_deck_repo.create_deck("一致性測試")
+
+        def seed(conn):
+            card_ids = []
+            for front, state, next_review in (
+                ("learning-now", 1, self.now),
+                ("review-later-today", 2, self.now + timedelta(hours=2)),
+            ):
+                cursor = conn.execute(
+                    """
+                    INSERT INTO cards
+                        (front, back, next_review, state, reps, card_type)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        front,
+                        "meaning",
+                        time_provider.format_iso(next_review),
+                        state,
+                        1,
+                        "recognize",
+                    ),
+                )
+                card_ids.append(cursor.lastrowid)
+            conn.executemany(
+                "INSERT INTO card_decks (card_id, deck_id) VALUES (?, ?)",
+                [(card_id, deck_id) for card_id in card_ids],
+            )
+
+        self.adapter.transaction(seed)
+
+        _, unassigned_decks = folder_deck_repo.list_folders_with_decks()
+        badge_due_count = next(
+            deck.due_count for deck in unassigned_decks if deck.id == deck_id
+        )
+        study_due_count = len(
+            scheduler.get_due_cards(ExamScope(deck_id=deck_id), self.now, 0).due_cards
+        )
+
+        self.assertEqual(badge_due_count, study_due_count)
 
 
 if __name__ == "__main__":
