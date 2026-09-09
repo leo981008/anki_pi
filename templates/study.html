@@ -63,10 +63,9 @@
                 <input type="text" id="spell-input" class="form-control spell-text-field" placeholder="在這裡拼寫單字..." autocomplete="off" autofocus>
                 <button class="btn btn-primary" id="spell-submit-btn">送出答案</button>
             </div>
-            <div class="spell-result-alert hidden" id="spell-result">
-                <!-- Will be populated dynamically -->
-            </div>
         </div>
+
+        <div class="spell-result-alert hidden" id="spell-result" role="status" aria-live="polite"></div>
 
         <!-- 2. "Show Answer" Panel -->
         <div class="show-answer-panel" id="show-answer-panel">
