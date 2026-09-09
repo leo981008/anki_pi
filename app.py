@@ -8,6 +8,7 @@ import database as db
 from forms import (
     FolderForm,
     DeckForm,
+    EditDeckForm,
     CardForm,
     ImportForm,
     EmptyForm,
@@ -213,13 +214,18 @@ def edit_deck(deck_id):
         return redirect(url_for("index"))
 
     folders_all = db.get_all_folders()
-    form = DeckForm()
+    form = EditDeckForm()
     form.folders.choices = [(f["id"], f["name"]) for f in folders_all]
 
     if request.method == "POST":
         if form.validate_on_submit():
             try:
-                db.update_deck(deck_id, form.name.data, form.folders.data)
+                db.update_deck(
+                    deck_id,
+                    form.name.data,
+                    form.folders.data,
+                    card_type=form.card_type.data or None,
+                )
                 flash("牌組更新成功！", "success")
                 return redirect(url_for("index"))
             except ValueError as e:

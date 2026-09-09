@@ -25,6 +25,62 @@ def _cleanup_test_database():
 atexit.register(_cleanup_test_database)
 
 from app import app  # noqa: E402
+import database as db  # noqa: E402
+
+
+class EditDeckTests(unittest.TestCase):
+    def setUp(self):
+        app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
+        self.client = app.test_client()
+        self.deck = db.create_deck(self.id())
+        self.other = db.create_deck(self.id() + " other")
+        self.first, _ = db.add_card(
+            self.id() + " first", "一", "recognize", [self.deck]
+        )
+        self.shared, _ = db.add_card(
+            self.id() + " shared", "二", "spell", [self.deck, self.other]
+        )
+        self.outside, _ = db.add_card(
+            self.id() + " outside", "三", "recognize", [self.other]
+        )
+
+    def tearDown(self):
+        db.delete_deck(self.deck)
+        db.delete_deck(self.other)
+
+    def cards(self):
+        return db._adapter.execute(
+            "SELECT * FROM cards WHERE id IN (?, ?, ?) ORDER BY id",
+            (self.first, self.shared, self.outside),
+        )
+
+    def test_bulk_change_preserves_progress_and_unrelated_cards(self):
+        response = self.client.get(f"/decks/edit/{self.deck}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('name="card_type"', response.get_data(as_text=True))
+        original = self.cards()
+        for mode in ("spell", "recognize"):
+            response = self.client.post(
+                f"/decks/edit/{self.deck}",
+                data={"name": self.id(), "card_type": mode},
+            )
+            self.assertEqual(response.status_code, 302)
+            expected = [dict(card) for card in original]
+            for card in expected:
+                if card["id"] in (self.first, self.shared):
+                    card["card_type"] = mode
+            self.assertEqual(self.cards(), expected)
+
+    def test_keep_and_invalid_choice_do_not_change_cards(self):
+        original = self.cards()
+        for data, status in (
+            ({"name": self.id()}, 302),
+            ({"name": self.id(), "card_type": ""}, 302),
+            ({"name": self.id(), "card_type": "invalid"}, 200),
+        ):
+            response = self.client.post(f"/decks/edit/{self.deck}", data=data)
+            self.assertEqual(response.status_code, status)
+            self.assertEqual(self.cards(), original)
 
 
 class ReviewApiTests(unittest.TestCase):

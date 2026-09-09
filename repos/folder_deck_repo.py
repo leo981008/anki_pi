@@ -118,8 +118,15 @@ class FolderDeckRepoImpl:
         return self.adapter.transaction(_tx)
 
     def update_deck(
-        self, deck_id: int, name: str, folder_ids: list[int] | None = None
+        self,
+        deck_id: int,
+        name: str,
+        folder_ids: list[int] | None = None,
+        card_type: str | None = None,
     ) -> None:
+        if card_type not in (None, "recognize", "spell"):
+            raise ValueError("無效的卡片類型！")
+
         def _tx(conn):
             cur = conn.cursor()
             try:
@@ -135,6 +142,12 @@ class FolderDeckRepoImpl:
                         "INSERT INTO deck_folders (deck_id, folder_id) VALUES (?, ?)",
                         (deck_id, fid),
                     )
+            if card_type is not None:
+                cur.execute(
+                    "UPDATE cards SET card_type = ? WHERE id IN "
+                    "(SELECT card_id FROM card_decks WHERE deck_id = ?)",
+                    (card_type, deck_id),
+                )
 
         self.adapter.transaction(_tx)
 

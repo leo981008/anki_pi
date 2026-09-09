@@ -25,6 +25,18 @@ class DeckForm(FlaskForm):
     folders = MultiCheckboxField("所屬資料夾", coerce=int)
 
 
+class EditDeckForm(DeckForm):
+    card_type = SelectField(
+        "學習方式（套用至牌組內所有卡片）",
+        choices=[
+            ("", "保留各卡片原設定"),
+            ("recognize", "會背／只要認得 (recognize)"),
+            ("spell", "需要會拼 (spell)"),
+        ],
+        default="",
+    )
+
+
 class CardForm(FlaskForm):
     front = StringField(
         "正面 (英文)", validators=[DataRequired(message="請輸入正面英文")]

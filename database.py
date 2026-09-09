@@ -134,8 +134,8 @@ def create_deck(name, folder_ids=None):
     return _folder_deck_repo.create_deck(name, folder_ids or [])
 
 
-def update_deck(deck_id, name, folder_ids=None):
-    _folder_deck_repo.update_deck(deck_id, name, folder_ids or [])
+def update_deck(deck_id, name, folder_ids=None, card_type=None):
+    _folder_deck_repo.update_deck(deck_id, name, folder_ids or [], card_type)
 
 
 def delete_deck(deck_id):
